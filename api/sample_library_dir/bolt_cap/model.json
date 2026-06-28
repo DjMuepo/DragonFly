@@ -1,0 +1,18 @@
+{
+  "id": "sample-bolt-cap",
+  "title": "Bolt Cap (M6)",
+  "tags": [
+    "bolt",
+    "cap",
+    "hardware"
+  ],
+  "source": "local-sample",
+  "license": {
+    "status": "OK",
+    "name": "CC0",
+    "commercial_use_ok": true,
+    "attribution_required": false
+  },
+  "file": "model.stl",
+  "preview": null
+}

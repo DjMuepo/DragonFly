@@ -1,0 +1,16 @@
+[
+  {
+    "remote_id": "nih-abc",
+    "title": "Assistive Grip Adapter (NIH 3D)",
+    "tags": "assistive grip adapter",
+    "preview_url": null,
+    "file_url": null,
+    "external_url": "https://3d.nih.gov/entries/abc",
+    "license": {
+      "status": "OK",
+      "name": "CC0",
+      "allow_commercial": true,
+      "allow_redistribution": true
+    }
+  }
+]

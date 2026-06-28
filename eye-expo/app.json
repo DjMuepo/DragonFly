@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Eye Platform",
+    "slug": "eye-platform",
+    "scheme": "eyeplatform",
+    "ios": {
+      "bundleIdentifier": "com.muepo.eyeplatform",
+      "associatedDomains": [
+        "applinks:example.com"
+      ]
+    },
+    "android": {
+      "package": "com.muepo.eyeplatform",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "example.com",
+              "pathPrefix": "/design/"
+            },
+            {
+              "scheme": "https",
+              "host": "example.com",
+              "pathPrefix": "/creator/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

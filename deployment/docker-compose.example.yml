@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: ../api
+    container_name: eye-platform-api
+    env_file:
+      - ../api/.env.production.example
+    ports:
+      - "8000:8000"
+    volumes:
+      - api_data:/app/data
+
+  web:
+    image: node:20
+    container_name: eye-platform-web
+    working_dir: /app
+    command: sh -c "npm install && npm run build && npm run start"
+    env_file:
+      - ../web-landing/.env.production.example
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../web-landing:/app
+
+volumes:
+  api_data:

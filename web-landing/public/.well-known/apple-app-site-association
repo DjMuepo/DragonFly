@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["ABCDE12345.com.muepo.eyeplatform"],
+        "components": [
+          { "/": "/design/*", "comment": "Open design pages in app" },
+          { "/": "/creator/*", "comment": "Open creator pages in app" }
+        ]
+      }
+    ]
+  }
+}

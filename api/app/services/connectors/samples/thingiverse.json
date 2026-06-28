@@ -1,0 +1,17 @@
+[
+  {
+    "remote_id": "tv-123",
+    "title": "Wall Hook (Thingiverse)",
+    "tags": "hook wall hanger",
+    "preview_url": null,
+    "file_url": null,
+    "external_url": "https://www.thingiverse.com/thing:123",
+    "license": {
+      "status": "UNKNOWN",
+      "name": "CC-BY-4.0",
+      "require_attribution": true,
+      "allow_commercial": true,
+      "allow_redistribution": false
+    }
+  }
+]

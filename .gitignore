@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Expo
+.expo/
+
+# Environment
+.env
+.env.*
+
+# macOS
+.DS_Store

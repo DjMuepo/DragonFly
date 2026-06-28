@@ -1,0 +1,68 @@
+[
+  {
+    "id": "lib:thingiverse:123",
+    "source": "thingiverse",
+    "title": "Universal Bracket (parametric)",
+    "tags": "bracket mount universal parametric",
+    "license": {
+      "status": "OK",
+      "name": "CC BY",
+      "commercial_use_ok": true,
+      "attribution_required": true
+    },
+    "preview_url": null,
+    "file_url": null
+  },
+  {
+    "id": "lib:printables:987",
+    "source": "printables",
+    "title": "Street Fixture Clip",
+    "tags": "clip street fixture outdoor",
+    "license": {
+      "status": "UNKNOWN"
+    },
+    "preview_url": null,
+    "file_url": null
+  },
+  {
+    "id": "lib:openscad:spacer-001",
+    "source": "openscad",
+    "title": "Spacer Ring (M3/M4)",
+    "tags": "spacer ring washer m3 m4",
+    "license": {
+      "status": "OK",
+      "name": "MIT",
+      "commercial_use_ok": true,
+      "attribution_required": false
+    },
+    "preview_url": null,
+    "file_url": null
+  },
+  {
+    "id": "lib:cults:555",
+    "source": "cults3d",
+    "title": "Premium Handle (restricted)",
+    "tags": "handle grip premium",
+    "license": {
+      "status": "RESTRICTED",
+      "commercial_use_ok": false
+    },
+    "preview_url": null,
+    "file_url": null
+  },
+  {
+    "id": "lib:freecad:hinge-002",
+    "source": "freecad",
+    "title": "Simple Hinge (print-in-place)",
+    "tags": "hinge joint print-in-place",
+    "license": {
+      "status": "OK",
+      "name": "CC BY-SA",
+      "commercial_use_ok": true,
+      "attribution_required": true,
+      "share_alike": true
+    },
+    "preview_url": null,
+    "file_url": null
+  }
+]

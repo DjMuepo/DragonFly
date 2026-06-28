@@ -1,0 +1,18 @@
+{
+  "id": "sample-wall-hook",
+  "title": "Simple Wall Hook",
+  "tags": [
+    "hook",
+    "wall",
+    "hanger"
+  ],
+  "source": "local-sample",
+  "license": {
+    "status": "RESTRICTED",
+    "name": "CC BY-NC",
+    "commercial_use_ok": false,
+    "attribution_required": true
+  },
+  "file": "model.stl",
+  "preview": null
+}
