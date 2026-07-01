@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, Image, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Image, Pressable, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useSnapStore } from '../../src/lib/useSnapStore';
@@ -9,6 +9,8 @@ export default function ResultScreen() {
   const cutoutUri = useSnapStore((s) => s.cutoutUri);
   const targetLabel = useSnapStore((s) => s.targetLabel);
   const generatedModelName = useSnapStore((s) => s.generatedModelName);
+  const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
+  const modelDownloadUrl = useSnapStore((s) => s.modelDownloadUrl);
   const clear = useSnapStore((s) => s.clear);
   const imageUri = cutoutUri || heroUri;
   const [message, setMessage] = useState<string | null>(null);
@@ -24,9 +26,19 @@ export default function ResultScreen() {
     );
   }
 
+  const downloadUrl = modelDownloadUrl || generatedModelUrl;
+
   const onNewScan = () => {
     clear();
     router.push('/');
+  };
+
+  const onDownload = () => {
+    if (downloadUrl?.startsWith('http')) {
+      Linking.openURL(downloadUrl);
+    } else {
+      setMessage('No downloadable GLB is available yet. Run Generate 3D with the geometry backend active on port 8010.');
+    }
   };
 
   return (
@@ -37,8 +49,9 @@ export default function ResultScreen() {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Preview Ready</Text>
-        <Text style={styles.cardText}>Your one-photo 3D draft has been prepared successfully.</Text>
-        <Text style={styles.cardSubtext}>Model: {generatedModelName || 'one-photo-draft.glb'}</Text>
+        <Text style={styles.cardText}>Your one-photo 3D draft has been prepared.</Text>
+        <Text style={styles.cardSubtext}>Model: {generatedModelName || 'not generated yet'}</Text>
+        <Text style={styles.cardSubtext}>{downloadUrl ? 'GLB export connected' : 'Fallback preview only'}</Text>
       </View>
 
       {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -48,10 +61,7 @@ export default function ResultScreen() {
           <Text style={styles.buttonText}>View 3D</Text>
         </Pressable>
 
-        <Pressable
-          style={styles.secondaryButton}
-          onPress={() => setMessage('Download placeholder ready. Real GLB export connects in the backend phase.')}
-        >
+        <Pressable style={styles.secondaryButton} onPress={onDownload}>
           <Text style={styles.buttonText}>Download Model</Text>
         </Pressable>
 
@@ -75,7 +85,7 @@ const styles = StyleSheet.create({
   card: { width: '100%', maxWidth: 340, backgroundColor: '#f5f7fb', borderRadius: 16, padding: 18, marginBottom: 14 },
   cardTitle: { fontSize: 20, fontWeight: '800', marginBottom: 8, textAlign: 'center' },
   cardText: { textAlign: 'center', color: '#333', marginBottom: 8 },
-  cardSubtext: { textAlign: 'center', color: '#666', fontSize: 14 },
+  cardSubtext: { textAlign: 'center', color: '#666', fontSize: 14, marginBottom: 3 },
   message: { width: '100%', maxWidth: 340, textAlign: 'center', color: '#333', backgroundColor: '#e9fbfd', padding: 10, borderRadius: 10, marginBottom: 12 },
   actions: { width: 300, gap: 12 },
   primaryButton: { backgroundColor: '#18c6d1', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },

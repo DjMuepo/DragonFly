@@ -87,7 +87,6 @@ export default function Feedback() {
         photo_filename: uploadedFilename,
       },
     });
-    let uploadedFilename = null;
     if (photoUri) {
       const res = await uploadReviewPhoto(photoUri);
       uploadedFilename = res?.filename ?? null;

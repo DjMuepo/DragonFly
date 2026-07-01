@@ -36,10 +36,13 @@ type SnapState = {
   captured: ScanImage[];
   generatedModelUrl?: string;
   generatedModelName?: string;
+  modelUrl?: string;
+  downloadUrl?: string;
 
   setHeroUri: (uri?: string) => void;
   setCutoutUri: (uri?: string) => void;
   setTargetLabel: (label?: string) => void;
+  setModelLinks: (modelUrl?: string, downloadUrl?: string) => void;
   addCaptured: (image: ScanImage) => void;
   setGeneratedModel: (url?: string, name?: string) => void;
   clear: () => void;
@@ -118,6 +121,8 @@ const resetState = () => ({
   captured: [],
   generatedModelUrl: undefined,
   generatedModelName: undefined,
+  modelUrl: undefined,
+  downloadUrl: undefined,
   captureMode: 'single' as CaptureMode,
   burstUris: [],
   jobId: undefined,
@@ -154,7 +159,8 @@ export const useSnapStore = create<SnapState>((set, get) => ({
   setCutoutUri: (cutoutUri) => set({ cutoutUri }),
   setTargetLabel: (targetLabel) => set({ targetLabel }),
   addCaptured: (image) => set((state) => ({ captured: [...state.captured, image] })),
-  setGeneratedModel: (generatedModelUrl, generatedModelName) => set({ generatedModelUrl, generatedModelName }),
+  setGeneratedModel: (generatedModelUrl, generatedModelName) => set({ generatedModelUrl, generatedModelName, modelUrl: generatedModelUrl }),
+  setModelLinks: (modelUrl, downloadUrl) => set({ modelUrl, downloadUrl, generatedModelUrl: modelUrl }),
   clear: () => set(resetState()),
 
   setCaptureMode: (captureMode) => set({ captureMode }),

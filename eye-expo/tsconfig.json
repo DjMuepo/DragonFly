@@ -3,6 +3,5 @@
   "compilerOptions": {
     "strict": true,
     "noEmit": true,
-    "types": ["expo-router/types"]
   }
 }

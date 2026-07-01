@@ -44,6 +44,93 @@ function baseUrl(): string {
 
 const API_BASE = baseUrl();
 
+
+export function geometryBaseUrl(): string {
+  const explicit = process.env.EXPO_PUBLIC_GEOMETRY_API_BASE;
+  if (explicit) return explicit.replace(/\/$/, '');
+
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const { protocol, hostname } = window.location;
+    if (hostname.includes('-8081.app.github.dev')) {
+      return `${protocol}//${hostname.replace('-8081.app.github.dev', '-8010.app.github.dev')}`;
+    }
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:8010';
+    }
+  }
+
+  return 'http://localhost:8010';
+}
+
+export function geometryUrl(pathOrUrl?: string): string | undefined {
+  if (!pathOrUrl) return undefined;
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  return `${geometryBaseUrl()}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`;
+}
+
+export type GeometryGenerateResponse = {
+  ok: boolean;
+  engine: string;
+  status: string;
+  label: string;
+  model_name: string;
+  model_url: string;
+  download_url: string;
+  created_at: number;
+  notes: string;
+};
+
+async function appendImageToForm(form: FormData, uri: string) {
+  if (typeof window !== 'undefined' && (uri.startsWith('blob:') || uri.startsWith('data:') || uri.startsWith('http'))) {
+    const blob = await fetch(uri).then((r) => r.blob());
+    form.append('image', blob, 'capture.jpg');
+    return;
+  }
+  form.append('image', { uri, name: 'capture.jpg', type: 'image/jpeg' } as any);
+}
+
+export async function generateGeometryFromImage(uri: string, label: string = 'Object', confidence: number = 0.7): Promise<GeometryGenerateResponse> {
+  const form = new FormData();
+  form.append('label', label || 'Object');
+  form.append('confidence', String(confidence));
+  await appendImageToForm(form, uri);
+
+  const res = await fetch(`${geometryBaseUrl()}/v1/geometry/generate-from-image`, {
+    method: 'POST',
+    body: form,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`geometry image generation failed: ${res.status} ${text}`);
+  }
+
+  const data = (await res.json()) as GeometryGenerateResponse;
+  return {
+    ...data,
+    model_url: geometryUrl(data.model_url) || '',
+    download_url: geometryUrl(data.download_url) || '',
+  };
+}
+
+export async function generateGeometryDraft(label: string = 'Object', confidence: number = 0.7): Promise<GeometryGenerateResponse> {
+  const res = await fetch(`${geometryBaseUrl()}/v1/geometry/generate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ label, confidence, mode: 'approximate' }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`geometry generation failed: ${res.status} ${text}`);
+  }
+  const data = (await res.json()) as GeometryGenerateResponse;
+  return {
+    ...data,
+    model_url: geometryUrl(data.model_url) || '',
+    download_url: geometryUrl(data.download_url) || '',
+  };
+}
+
 export async function createJob(payload: { include_burst?: boolean } = {}): Promise<JobCreateResponse> {
   const res = await fetch(`${baseUrl()}/v1/jobs`, {
     method: 'POST',

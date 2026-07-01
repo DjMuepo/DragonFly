@@ -13,23 +13,27 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "base-64": "^1.0.0",
     "expo": "latest",
     "expo-camera": "latest",
     "expo-file-system": "latest",
-    "expo-router": "latest",
-    "base-64": "^1.0.0",
-    "react": "latest",
-    "react-native": "latest",
-    "zustand": "latest",
+    "expo-gl": "~56.0.5",
     "expo-image-picker": "~15.0.0",
-    "three": "^0.160.0",
-    "expo-gl": "~14.0.2",
-    "expo-location": "~17.0.1",
     "expo-linking": "latest",
+    "expo-location": "~17.0.1",
+    "expo-router": "latest",
+    "expo-status-bar": "~56.0.4",
+    "react": "latest",
     "react-dom": "latest",
-    "react-native-web": "latest"
+    "react-native": "latest",
+    "react-native-web": "latest",
+    "three": "^0.160.1",
+    "zustand": "latest"
   },
   "devDependencies": {
+    "@types/react": "~19.2.14",
     "typescript": "latest"
   }
 }
