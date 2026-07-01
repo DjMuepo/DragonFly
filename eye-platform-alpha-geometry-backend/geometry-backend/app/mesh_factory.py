@@ -1,138 +1,133 @@
 from __future__ import annotations
 
+import json
 import math
 import re
-import uuid
+import struct
+import time
 from pathlib import Path
-from typing import Tuple
+from typing import Dict, Iterable, List, Tuple
 
-import numpy as np
-import trimesh
+Vector3 = Tuple[float, float, float]
 
-Color = Tuple[int, int, int, int]
-CYAN: Color = (24, 198, 209, 255)
-PURPLE: Color = (91, 95, 151, 255)
-ORANGE: Color = (255, 136, 77, 255)
-GRAY: Color = (180, 185, 198, 255)
-DARK: Color = (45, 51, 72, 255)
-WHITE: Color = (240, 245, 250, 255)
+SHAPE_PRESETS: Dict[str, Tuple[float, float, float, Tuple[float, float, float, float]]] = {
+    "phone": (1.25, 2.25, 0.16, (0.03, 0.75, 0.95, 1.0)),
+    "smartphone": (1.25, 2.25, 0.16, (0.03, 0.75, 0.95, 1.0)),
+    "bottle": (0.85, 2.1, 0.85, (0.03, 0.85, 0.75, 1.0)),
+    "cup": (1.05, 1.35, 1.05, (0.95, 0.95, 0.92, 1.0)),
+    "object": (1.25, 1.25, 1.25, (0.1, 0.78, 0.82, 1.0)),
+    "cube": (1.3, 1.3, 1.3, (0.1, 0.78, 0.82, 1.0)),
+}
 
 
-def _slug(label: str) -> str:
-    cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", label.strip().lower()).strip("-")
+def slugify(text: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", (text or "object").strip().lower()).strip("-")
     return cleaned or "object"
 
 
-def _paint(mesh: trimesh.Trimesh, color: Color) -> trimesh.Trimesh:
-    mesh.visual.vertex_colors = np.tile(np.array(color, dtype=np.uint8), (len(mesh.vertices), 1))
-    return mesh
+def infer_preset(label: str) -> str:
+    lowered = (label or "object").lower()
+    if any(x in lowered for x in ["phone", "iphone", "samsung", "mobile"]):
+        return "phone"
+    if any(x in lowered for x in ["bottle", "spray", "can"]):
+        return "bottle"
+    if any(x in lowered for x in ["cup", "mug", "vase"]):
+        return "cup"
+    if "cube" in lowered or "box" in lowered:
+        return "cube"
+    return "object"
 
 
-def _move(mesh: trimesh.Trimesh, xyz) -> trimesh.Trimesh:
-    mesh.apply_translation(xyz)
-    return mesh
+def apply_prompt_dimensions(width: float, height: float, depth: float, prompt: str | None) -> Tuple[float, float, float]:
+    p = (prompt or "").lower()
+    if "taller" in p or "height" in p or "stretch" in p:
+        height *= 1.35
+    if "shorter" in p:
+        height *= 0.75
+    if "wider" in p or "wide" in p:
+        width *= 1.25
+    if "thinner" in p or "thin" in p or "slim" in p:
+        depth *= 0.6
+    if "thicker" in p or "stronger" in p or "printable" in p:
+        depth *= 1.25
+    if "stand" in p or "base" in p:
+        width *= 1.25
+        depth *= 1.4
+    return width, height, depth
 
 
-def _scale(mesh: trimesh.Trimesh, xyz) -> trimesh.Trimesh:
-    mesh.apply_scale(xyz)
-    return mesh
-
-
-def _box(extents, color: Color, translate=(0, 0, 0)) -> trimesh.Trimesh:
-    return _move(_paint(trimesh.creation.box(extents=extents), color), translate)
-
-
-def _cylinder(radius=0.5, height=1.0, color: Color = CYAN, translate=(0, 0, 0), sections=48) -> trimesh.Trimesh:
-    # trimesh cylinders are aligned on Z. Rotate to make Z height feel upright in common GLB viewers.
-    mesh = trimesh.creation.cylinder(radius=radius, height=height, sections=sections)
-    return _move(_paint(mesh, color), translate)
-
-
-def _sphere(radius=0.65, color: Color = CYAN, translate=(0, 0, 0)) -> trimesh.Trimesh:
-    return _move(_paint(trimesh.creation.icosphere(subdivisions=3, radius=radius), color), translate)
-
-
-def _spray_bottle() -> trimesh.Scene:
-    parts = []
-    parts.append(_cylinder(0.36, 1.55, CYAN, (0, 0, 0)))
-    parts.append(_cylinder(0.22, 0.35, WHITE, (0, 0, 0.95)))
-    parts.append(_box((0.75, 0.28, 0.22), DARK, (0.26, 0, 1.24)))
-    parts.append(_box((0.22, 0.18, 0.48), DARK, (-0.15, 0, 1.03)))
-    nozzle = _cylinder(0.07, 0.55, ORANGE, (0.68, 0, 1.25), 24)
-    nozzle.apply_transform(trimesh.transformations.rotation_matrix(math.radians(90), [0, 1, 0]))
-    parts.append(nozzle)
-    return trimesh.Scene(parts)
-
-
-def _bottle() -> trimesh.Scene:
-    parts = []
-    parts.append(_cylinder(0.34, 1.55, CYAN, (0, 0, 0)))
-    parts.append(_cylinder(0.20, 0.55, WHITE, (0, 0, 1.05)))
-    parts.append(_cylinder(0.23, 0.16, ORANGE, (0, 0, 1.45)))
-    return trimesh.Scene(parts)
-
-
-def _box_object() -> trimesh.Scene:
-    parts = [_box((1.15, 0.9, 1.25), PURPLE, (0, 0, 0)), _box((1.18, 0.05, 0.08), WHITE, (0, 0.48, 0.25))]
-    return trimesh.Scene(parts)
-
-
-def _mug() -> trimesh.Scene:
-    cup = _cylinder(0.48, 1.0, ORANGE, (0, 0, 0))
-    handle = trimesh.creation.torus(major_radius=0.32, minor_radius=0.055, major_sections=48, minor_sections=12)
-    handle.apply_transform(trimesh.transformations.rotation_matrix(math.radians(90), [1, 0, 0]))
-    handle.apply_scale((0.8, 1.0, 1.15))
-    _paint(handle, WHITE)
-    _move(handle, (0.5, 0, 0.05))
-    return trimesh.Scene([cup, handle])
-
-
-def _phone() -> trimesh.Scene:
-    body = _box((0.72, 0.08, 1.35), DARK, (0, 0, 0))
-    screen = _box((0.62, 0.02, 1.16), CYAN, (0, -0.052, 0.02))
-    return trimesh.Scene([body, screen])
-
-
-def _chair() -> trimesh.Scene:
-    parts = [
-        _box((1.05, 0.95, 0.13), CYAN, (0, 0, 0.05)),
-        _box((1.05, 0.12, 1.1), PURPLE, (0, 0.42, 0.62)),
-        _box((0.12, 0.12, 0.9), DARK, (-0.42, -0.35, -0.42)),
-        _box((0.12, 0.12, 0.9), DARK, (0.42, -0.35, -0.42)),
-        _box((0.12, 0.12, 0.9), DARK, (-0.42, 0.35, -0.42)),
-        _box((0.12, 0.12, 0.9), DARK, (0.42, 0.35, -0.42)),
+def box_vertices(width: float, height: float, depth: float) -> Tuple[List[Vector3], List[int]]:
+    x, y, z = width / 2.0, height / 2.0, depth / 2.0
+    vertices: List[Vector3] = [
+        (-x, -y, z), (x, -y, z), (x, y, z), (-x, y, z),
+        (x, -y, -z), (-x, -y, -z), (-x, y, -z), (x, y, -z),
+        (-x, y, z), (x, y, z), (x, y, -z), (-x, y, -z),
+        (-x, -y, -z), (x, -y, -z), (x, -y, z), (-x, -y, z),
+        (x, -y, z), (x, -y, -z), (x, y, -z), (x, y, z),
+        (-x, -y, -z), (-x, -y, z), (-x, y, z), (-x, y, -z),
     ]
-    return trimesh.Scene(parts)
+    indices = [
+        0, 1, 2, 0, 2, 3,
+        4, 5, 6, 4, 6, 7,
+        8, 9, 10, 8, 10, 11,
+        12, 13, 14, 12, 14, 15,
+        16, 17, 18, 16, 18, 19,
+        20, 21, 22, 20, 22, 23,
+    ]
+    return vertices, indices
 
 
-def _generic() -> trimesh.Scene:
-    base = _sphere(0.58, CYAN, (0, 0, 0.1))
-    pedestal = _cylinder(0.34, 0.5, PURPLE, (0, 0, -0.48))
-    return trimesh.Scene([base, pedestal])
+def write_glb(path: Path, label: str, width: float, height: float, depth: float, color: Tuple[float, float, float, float]) -> Path:
+    vertices, indices = box_vertices(width, height, depth)
+    pos_bytes = b"".join(struct.pack("<3f", *v) for v in vertices)
+    idx_bytes = b"".join(struct.pack("<H", i) for i in indices)
+    while len(pos_bytes) % 4:
+        pos_bytes += b"\x00"
+    idx_offset = len(pos_bytes)
+    bin_blob = pos_bytes + idx_bytes
+    while len(bin_blob) % 4:
+        bin_blob += b"\x00"
+
+    mins = [min(v[i] for v in vertices) for i in range(3)]
+    maxs = [max(v[i] for v in vertices) for i in range(3)]
+    gltf = {
+        "asset": {"version": "2.0", "generator": "Eye Platform Procedural Geometry"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"name": label or "Object", "mesh": 0, "rotation": [0, 0, 0, 1]}],
+        "meshes": [{"name": f"{label or 'Object'} mesh", "primitives": [{"attributes": {"POSITION": 0}, "indices": 1, "material": 0}]}],
+        "materials": [{"name": "Eye teal material", "pbrMetallicRoughness": {"baseColorFactor": list(color), "metallicFactor": 0.05, "roughnessFactor": 0.48}}],
+        "buffers": [{"byteLength": len(bin_blob)}],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(pos_bytes), "target": 34962},
+            {"buffer": 0, "byteOffset": idx_offset, "byteLength": len(idx_bytes), "target": 34963},
+        ],
+        "accessors": [
+            {"bufferView": 0, "byteOffset": 0, "componentType": 5126, "count": len(vertices), "type": "VEC3", "min": mins, "max": maxs},
+            {"bufferView": 1, "byteOffset": 0, "componentType": 5123, "count": len(indices), "type": "SCALAR"},
+        ],
+    }
+    json_chunk = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    while len(json_chunk) % 4:
+        json_chunk += b" "
+    total_len = 12 + 8 + len(json_chunk) + 8 + len(bin_blob)
+    with path.open("wb") as f:
+        f.write(struct.pack("<III", 0x46546C67, 2, total_len))
+        f.write(struct.pack("<I4s", len(json_chunk), b"JSON"))
+        f.write(json_chunk)
+        f.write(struct.pack("<I4s", len(bin_blob), b"BIN\x00"))
+        f.write(bin_blob)
+    return path
 
 
-def make_scene_for_label(label: str) -> trimesh.Scene:
-    lower = (label or "object").lower()
-    if "spray" in lower:
-        return _spray_bottle()
-    if "bottle" in lower or "container" in lower:
-        return _bottle()
-    if "box" in lower or "package" in lower or "tissue" in lower:
-        return _box_object()
-    if "mug" in lower or "cup" in lower:
-        return _mug()
-    if "phone" in lower or "mobile" in lower:
-        return _phone()
-    if "chair" in lower or "seat" in lower:
-        return _chair()
-    return _generic()
-
-
-def export_glb(label: str, out_dir: Path) -> tuple[str, Path]:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    safe = _slug(label)
-    filename = f"{safe}-{uuid.uuid4().hex[:8]}.glb"
-    out_path = out_dir / filename
-    scene = make_scene_for_label(label)
-    scene.export(out_path, file_type="glb")
-    return filename, out_path
+def export_glb(label: str, models_dir: Path, prompt: str | None = None) -> Tuple[str, Path]:
+    models_dir.mkdir(parents=True, exist_ok=True)
+    preset = infer_preset(label)
+    width, height, depth, color = SHAPE_PRESETS[preset]
+    width, height, depth = apply_prompt_dimensions(width, height, depth, prompt)
+    slug = slugify(label)
+    suffix = str(int(time.time() * 1000))[-7:]
+    filename = f"{slug}-{suffix}.glb"
+    path = models_dir / filename
+    write_glb(path, label or "Object", width, height, depth, color)
+    return filename, path
