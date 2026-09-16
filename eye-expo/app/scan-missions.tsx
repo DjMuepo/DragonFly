@@ -1,8 +1,9 @@
 
 import React,{useEffect,useState} from 'react'
 import {View,Text,FlatList,StyleSheet} from 'react-native'
+type Mission = { id: string; title: string }
 export default function Missions(){
- const [m,setM]=useState([])
+ const [m,setM]=useState<Mission[]>([])
  useEffect(()=>{fetch('/v1/world/missions').then(r=>r.json()).then(d=>setM(d.missions||[]))},[])
  return(
   <View style={s.c}>

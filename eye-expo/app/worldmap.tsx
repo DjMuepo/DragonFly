@@ -1,8 +1,9 @@
 
 import React,{useEffect,useState} from 'react'
 import {View,Text,FlatList,StyleSheet} from 'react-native'
+type WorldObject = { id: string; title: string }
 export default function WorldMap(){
- const [data,setData]=useState([])
+ const [data,setData]=useState<WorldObject[]>([])
  useEffect(()=>{
   fetch('/v1/world/objects').then(r=>r.json()).then(d=>setData(d.objects||[]))
  },[])

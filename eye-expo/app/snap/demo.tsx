@@ -11,7 +11,7 @@ export default function Demo() {
   const [mode, setMode] = React.useState<'custom'|'drop'|'side_load'|'twist'>('custom');
   const sessionId = useSnapStore((s) => (s as any).sessionId);
   const structuralParams = useSnapStore((s) => (s as any).structuralParams);
-  const [simResult, setSimResult] = React.useState<{deflection_score:number; risk:string; force:number} | null>(null);
+  const [simResult, setSimResult] = React.useState<{deflection_score:number; risk:string; force:number; load_type?: string} | null>(null);
   const [loading, setLoading] = React.useState(false);
   const riskColor = (r?: string) => (r === 'LOW' ? '#2bd576' : r === 'MED' ? '#f2c94c' : '#eb5757');
   const loadAccent = (lt?: string) => {
