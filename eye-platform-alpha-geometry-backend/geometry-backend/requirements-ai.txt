@@ -1,0 +1,4 @@
+# TripoSR is a source repository, not an installable Python package.
+# Run scripts/install_triposr.sh in the supported Python 3.11 environment.
+torch>=2.2
+torchvision>=0.17

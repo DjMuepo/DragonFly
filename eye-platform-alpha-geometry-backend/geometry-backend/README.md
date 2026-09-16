@@ -8,7 +8,8 @@ It generates a real `.glb` file immediately using procedural geometry from the d
 
 ```bash
 cd geometry-backend
-python -m venv .venv
+# Python 3.11 is the supported runtime. Python 3.12 is supported for CPU-only development.
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

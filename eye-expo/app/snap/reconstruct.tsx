@@ -18,6 +18,7 @@ export default function ReconstructScreen() {
   const [error, setError] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
   const [engine, setEngine] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -33,10 +34,17 @@ export default function ReconstructScreen() {
       try {
         setStage('building');
         setError(null);
+        setProgress(0);
         const result = await generateGeometryFromImage({
           imageUri,
           label: targetLabel || 'Object',
           confidence: 0.7,
+          onProgress: (job) => {
+            if (alive) {
+              setProgress(job.progress);
+              setEngine(`${job.provider} (${job.provider_kind})`);
+            }
+          },
         });
         if (!alive) return;
 
@@ -78,7 +86,7 @@ export default function ReconstructScreen() {
       {stage === 'building' ? (
         <>
           <ActivityIndicator size="large" />
-          <Text style={styles.status}>Generating geometry from your image...</Text>
+          <Text style={styles.status}>{engine ? `Generating with ${engine}: ${progress}%` : 'Submitting image reconstruction job...'}</Text>
           <Text style={styles.note}>This can take a moment. The model actions appear only after the backend returns a valid URL.</Text>
         </>
       ) : stage === 'error' ? (

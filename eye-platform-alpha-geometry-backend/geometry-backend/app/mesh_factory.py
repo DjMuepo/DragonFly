@@ -168,13 +168,20 @@ def normalize_and_validate(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     return result
 
 
+def export_trimesh(mesh: trimesh.Trimesh, label: str, models_dir: Path) -> Tuple[str, Path]:
+    models_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{slugify(label)}-{str(int(time.time() * 1000))[-7:]}.glb"
+    path = models_dir / filename
+    normalized = normalize_and_validate(mesh)
+    normalized.export(path, file_type="glb")
+    normalized.export(path.with_suffix(".stl"), file_type="stl")
+    return filename, path
+
+
 def export_glb(label: str, models_dir: Path, prompt: str | None = None) -> Tuple[str, Path]:
     models_dir.mkdir(parents=True, exist_ok=True)
     slug = slugify(label)
     suffix = str(int(time.time() * 1000))[-7:]
     filename = f"{slug}-{suffix}.glb"
     path = models_dir / filename
-    mesh = normalize_and_validate(_parametric_mesh(label, prompt))
-    mesh.export(path, file_type="glb")
-    mesh.export(path.with_suffix(".stl"), file_type="stl")
-    return filename, path
+    return export_trimesh(_parametric_mesh(label, prompt), label, models_dir)

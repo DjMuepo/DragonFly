@@ -1,0 +1,10 @@
+{
+  "name": "DragonFly",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+  "postCreateCommand": "python3.11 -m venv eye-platform-alpha-geometry-backend/geometry-backend/.venv && eye-platform-alpha-geometry-backend/geometry-backend/.venv/bin/pip install -r eye-platform-alpha-geometry-backend/geometry-backend/requirements.txt && eye-platform-alpha-geometry-backend/geometry-backend/scripts/install_triposr.sh"
+}

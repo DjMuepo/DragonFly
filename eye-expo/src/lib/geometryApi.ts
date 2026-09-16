@@ -2,6 +2,7 @@ export type GeometryResponse = {
   ok: boolean;
   job_id: string;
   engine: string;
+  provider_kind: 'ai' | 'procedural_fallback';
   status: string;
   label: string;
   detected_family?: string;
@@ -11,6 +12,16 @@ export type GeometryResponse = {
   stl_download_url?: string;
   created_at: number;
   notes?: string;
+};
+
+export type GeometryJobResponse = {
+  job_id: string;
+  status: 'queued' | 'processing' | 'done' | 'error';
+  progress: number;
+  provider: string;
+  provider_kind: 'ai' | 'procedural_fallback';
+  error?: string;
+  result?: GeometryResponse;
 };
 
 export type VisionResponse = {
@@ -52,7 +63,21 @@ function normalize(data: GeometryResponse): GeometryResponse {
   };
 }
 
-export async function generateGeometryFromImage(params: { imageUri?: string; label?: string; confidence?: number }): Promise<GeometryResponse> {
+async function waitForGeometryJob(job: GeometryJobResponse, onProgress?: (job: GeometryJobResponse) => void): Promise<GeometryResponse> {
+  let current = job;
+  for (let attempt = 0; attempt < 180; attempt += 1) {
+    onProgress?.(current);
+    if (current.status === 'done' && current.result?.model_url) return normalize(current.result);
+    if (current.status === 'error') throw new Error(current.error || `${current.provider} reconstruction failed`);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const response = await fetch(`${getGeometryApiBase()}/v1/geometry/jobs/${encodeURIComponent(current.job_id)}`);
+    if (!response.ok) throw new Error(`Geometry job lookup failed (${response.status})`);
+    current = (await response.json()) as GeometryJobResponse;
+  }
+  throw new Error('Geometry generation timed out before the backend returned a model.');
+}
+
+export async function generateGeometryFromImage(params: { imageUri?: string; label?: string; confidence?: number; onProgress?: (job: GeometryJobResponse) => void }): Promise<GeometryResponse> {
   const label = params.label || 'Object';
   if (!params.imageUri) return generateGeometryFromPrompt({ label });
   const form = new FormData();
@@ -67,17 +92,17 @@ export async function generateGeometryFromImage(params: { imageUri?: string; lab
   }
   const res = await fetch(`${getGeometryApiBase()}/v1/geometry/generate-from-image`, { method: 'POST', body: form });
   if (!res.ok) throw new Error(`Geometry backend failed (${res.status}): ${await res.text()}`);
-  return normalize((await res.json()) as GeometryResponse);
+  return waitForGeometryJob((await res.json()) as GeometryJobResponse, params.onProgress);
 }
 
-export async function generateGeometryFromPrompt(params: { label?: string; prompt?: string }): Promise<GeometryResponse> {
+export async function generateGeometryFromPrompt(params: { label?: string; prompt?: string; onProgress?: (job: GeometryJobResponse) => void }): Promise<GeometryResponse> {
   const res = await fetch(`${getGeometryApiBase()}/v1/geometry/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ label: params.label || 'Object', confidence: 0.7, mode: 'approximate', prompt: params.prompt }),
   });
   if (!res.ok) throw new Error(`Geometry backend failed (${res.status}): ${await res.text()}`);
-  return normalize((await res.json()) as GeometryResponse);
+  return waitForGeometryJob((await res.json()) as GeometryJobResponse, params.onProgress);
 }
 
 export async function editGeometry(params: { label?: string; modelUrl?: string; prompt: string }): Promise<GeometryResponse> {
@@ -87,7 +112,7 @@ export async function editGeometry(params: { label?: string; modelUrl?: string; 
     body: JSON.stringify({ label: params.label || 'Object', model_url: params.modelUrl, prompt: params.prompt }),
   });
   if (!res.ok) throw new Error(`Edit backend failed (${res.status}): ${await res.text()}`);
-  return normalize((await res.json()) as GeometryResponse);
+  return waitForGeometryJob((await res.json()) as GeometryJobResponse);
 }
 
 export async function preparePrint(params: { modelUrl?: string; material?: string; infillPercent?: number }) {
