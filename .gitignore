@@ -12,5 +12,9 @@ node_modules/
 .env
 .env.*
 
+# Geometry backend runtime output
+eye-platform-alpha-geometry-backend/geometry-backend/static/models/*
+eye-platform-alpha-geometry-backend/geometry-backend/static/uploads/*
+
 # macOS
 .DS_Store
