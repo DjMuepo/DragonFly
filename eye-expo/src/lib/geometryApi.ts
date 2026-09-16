@@ -8,6 +8,7 @@ export type GeometryResponse = {
   model_name: string;
   model_url: string;
   download_url: string;
+  stl_download_url?: string;
   created_at: number;
   notes?: string;
 };
@@ -43,7 +44,12 @@ function absoluteUrl(pathOrUrl: string) {
 }
 
 function normalize(data: GeometryResponse): GeometryResponse {
-  return { ...data, model_url: absoluteUrl(data.model_url), download_url: absoluteUrl(data.download_url) };
+  return {
+    ...data,
+    model_url: absoluteUrl(data.model_url),
+    download_url: absoluteUrl(data.download_url),
+    stl_download_url: data.stl_download_url ? absoluteUrl(data.stl_download_url) : undefined,
+  };
 }
 
 export async function generateGeometryFromImage(params: { imageUri?: string; label?: string; confidence?: number }): Promise<GeometryResponse> {

@@ -8,6 +8,9 @@ import time
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
+import numpy as np
+import trimesh
+
 Vector3 = Tuple[float, float, float]
 
 SHAPE_PRESETS: Dict[str, Tuple[float, float, float, Tuple[float, float, float, float]]] = {
@@ -120,14 +123,58 @@ def write_glb(path: Path, label: str, width: float, height: float, depth: float,
     return path
 
 
+def _prompt_value(pattern: str, prompt: str) -> float | None:
+    match = re.search(pattern, prompt, flags=re.IGNORECASE)
+    return float(match.group(1)) if match else None
+
+
+def _parametric_mesh(label: str, prompt: str | None = None) -> trimesh.Trimesh:
+    text = prompt or ""
+    preset = infer_preset(f"{label} {text}")
+    width, height, depth, _ = SHAPE_PRESETS[preset]
+    width, height, depth = [value * 32 for value in (width, height, depth)]
+    explicit_height = _prompt_value(r"(\d+(?:\.\d+)?)\s*mm\s*(?:tall|high|height)", text)
+    wider_percent = _prompt_value(r"(\d+(?:\.\d+)?)\s*%\s*wider", text)
+    if explicit_height is not None:
+        height = explicit_height
+    if wider_percent is not None:
+        width *= 1 + wider_percent / 100
+        depth *= 1 + wider_percent / 100
+    width, height, depth = apply_prompt_dimensions(width, height, depth, text)
+    lowered = text.lower()
+    if preset in {"bottle", "cup"} or "cylinder" in lowered:
+        radius = max(width, depth) / 2
+        if "hole" in lowered:
+            return trimesh.creation.annulus(r_min=max(2.0, radius * 0.28), r_max=radius, height=height, sections=64)
+        return trimesh.creation.cylinder(radius=radius, height=height, sections=64)
+    mesh = trimesh.creation.box(extents=(width, height, depth))
+    if "round the edges" in lowered or "rounded edges" in lowered or "fillet" in lowered:
+        mesh = mesh.subdivide()
+        mesh.vertices *= 0.96
+    return mesh
+
+
+def normalize_and_validate(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    result = mesh.copy()
+    result.remove_duplicate_faces()
+    result.remove_degenerate_faces()
+    result.remove_unreferenced_vertices()
+    result.merge_vertices()
+    if result.is_empty or len(result.faces) == 0:
+        raise ValueError("Generated mesh contains no faces")
+    result.apply_translation(-result.bounding_box.centroid)
+    if not np.all(np.isfinite(result.extents)) or float(np.max(result.extents)) <= 0:
+        raise ValueError("Generated mesh has invalid bounds")
+    return result
+
+
 def export_glb(label: str, models_dir: Path, prompt: str | None = None) -> Tuple[str, Path]:
     models_dir.mkdir(parents=True, exist_ok=True)
-    preset = infer_preset(label)
-    width, height, depth, color = SHAPE_PRESETS[preset]
-    width, height, depth = apply_prompt_dimensions(width, height, depth, prompt)
     slug = slugify(label)
     suffix = str(int(time.time() * 1000))[-7:]
     filename = f"{slug}-{suffix}.glb"
     path = models_dir / filename
-    write_glb(path, label or "Object", width, height, depth, color)
+    mesh = normalize_and_validate(_parametric_mesh(label, prompt))
+    mesh.export(path, file_type="glb")
+    mesh.export(path.with_suffix(".stl"), file_type="stl")
     return filename, path

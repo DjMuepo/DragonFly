@@ -14,10 +14,11 @@ export default function ReconstructScreen() {
   const setJobResultLinks = useSnapStore((s) => s.setJobResultLinks);
   const imageUri = cutoutUri || heroUri;
 
-  const [stage, setStage] = useState<'preparing' | 'analyzing' | 'building' | 'ready' | 'error'>('preparing');
+  const [stage, setStage] = useState<'building' | 'ready' | 'error'>('building');
   const [error, setError] = useState<string | null>(null);
   const [modelName, setModelName] = useState<string | null>(null);
   const [engine, setEngine] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -30,15 +31,8 @@ export default function ReconstructScreen() {
       }
 
       try {
-        setStage('preparing');
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        if (!alive) return;
-
-        setStage('analyzing');
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        if (!alive) return;
-
         setStage('building');
+        setError(null);
         const result = await generateGeometryFromImage({
           imageUri,
           label: targetLabel || 'Object',
@@ -65,7 +59,7 @@ export default function ReconstructScreen() {
     return () => {
       alive = false;
     };
-  }, [imageUri, targetLabel, setGeneratedModel, setJobResultLinks]);
+  }, [attempt, imageUri, targetLabel, setGeneratedModel, setJobResultLinks]);
 
   if (!imageUri) {
     return (
@@ -75,53 +69,46 @@ export default function ReconstructScreen() {
     );
   }
 
-  const progress = stage === 'preparing' ? 25 : stage === 'analyzing' ? 55 : stage === 'building' ? 82 : stage === 'ready' ? 100 : 0;
-  const statusText =
-    stage === 'preparing'
-      ? 'Preparing source image...'
-      : stage === 'analyzing'
-        ? 'Analyzing object shape...'
-        : stage === 'building'
-          ? 'Generating GLB model...'
-          : stage === 'ready'
-            ? '3D result ready'
-            : 'Generation error';
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Generating 3D</Text>
       <Image source={{ uri: imageUri }} style={styles.image} />
       <Text style={styles.objectLabel}>Object: {targetLabel || 'Unknown object'}</Text>
 
-      {stage !== 'ready' && stage !== 'error' ? (
+      {stage === 'building' ? (
         <>
           <ActivityIndicator size="large" />
-          <Text style={styles.status}>{statusText}</Text>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${progress}%` }]} />
+          <Text style={styles.status}>Generating geometry from your image...</Text>
+          <Text style={styles.note}>This can take a moment. The model actions appear only after the backend returns a valid URL.</Text>
+        </>
+      ) : stage === 'error' ? (
+        <>
+          <View style={styles.errorCard}>
+            <Text style={styles.readyTitle}>Generation Failed</Text>
+            <Text style={styles.readyText}>The backend did not return a usable model.</Text>
+            {error ? <Text style={styles.warning}>{error}</Text> : null}
           </View>
-          <Text style={styles.progressText}>{progress}% complete</Text>
-          <Text style={styles.note}>Creating a one-photo GLB draft. More angles can improve accuracy, but they are optional.</Text>
+          <View style={styles.actions}>
+            <Pressable style={styles.primaryButton} onPress={() => setAttempt((value) => value + 1)}>
+              <Text style={styles.buttonText}>Try Again</Text>
+            </Pressable>
+            <Pressable style={styles.darkButton} onPress={() => router.push('/snap/camera')}>
+              <Text style={styles.buttonText}>Retake Photo</Text>
+            </Pressable>
+          </View>
         </>
       ) : (
         <>
-          <View style={stage === 'error' ? styles.errorCard : styles.readyCard}>
-            <Text style={styles.readyTitle}>{stage === 'error' ? 'Generation Needs Backend' : '3D Draft Ready'}</Text>
-            <Text style={styles.readyText}>
-              {stage === 'error'
-                ? 'The app is stable, but the geometry backend did not return a model. Start port 8010 and try again.'
-                : 'Your initial GLB result has been prepared from a single photo.'}
-            </Text>
+          <View style={styles.readyCard}>
+            <Text style={styles.readyTitle}>3D Model Ready</Text>
+            <Text style={styles.readyText}>Your GLB was generated from this photo.</Text>
             {modelName ? <Text style={styles.readySubtext}>Model: {modelName}</Text> : null}
             {engine ? <Text style={styles.readySubtext}>Engine: {engine}</Text> : null}
-            {error ? <Text style={styles.warning}>{error}</Text> : null}
           </View>
-
           <View style={styles.actions}>
             <Pressable style={styles.primaryButton} onPress={() => router.push('/snap/viewer')}>
               <Text style={styles.buttonText}>View 3D</Text>
             </Pressable>
-
             <Pressable style={styles.secondaryButton} onPress={() => router.push('/snap/result')}>
               <Text style={styles.buttonText}>Save / Finish</Text>
             </Pressable>
@@ -152,9 +139,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '800', marginBottom: 16, color: '#111' },
   objectLabel: { fontSize: 20, fontWeight: '700', marginBottom: 16, textAlign: 'center', color: '#111' },
   status: { marginTop: 12, color: '#444', fontSize: 16, textAlign: 'center' },
-  progressTrack: { width: 280, height: 12, backgroundColor: '#d9d9d9', borderRadius: 999, overflow: 'hidden', marginTop: 18 },
-  progressFill: { height: '100%', backgroundColor: '#18c6d1', borderRadius: 999 },
-  progressText: { marginTop: 10, color: '#666', fontWeight: '700' },
   note: { marginTop: 18, textAlign: 'center', color: '#666', maxWidth: 320 },
   readyCard: { width: '100%', maxWidth: 340, backgroundColor: '#f5f7fb', borderRadius: 16, padding: 18, marginTop: 10, marginBottom: 18 },
   errorCard: { width: '100%', maxWidth: 340, backgroundColor: '#fff5dd', borderRadius: 16, padding: 18, marginTop: 10, marginBottom: 18 },

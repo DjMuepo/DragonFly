@@ -11,7 +11,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .mesh_factory import export_glb, infer_preset
+from .mesh_factory import infer_preset
+from .providers import ReconstructionRequest, reconstruct
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 STATIC_DIR = BASE_DIR / "static"
@@ -53,6 +54,7 @@ class GeometryResponse(BaseModel):
     model_name: str
     model_url: str
     download_url: str
+    stl_download_url: Optional[str] = None
     created_at: float
     notes: str
 
@@ -73,23 +75,27 @@ def public_base(request: Request) -> str:
     return str(request.base_url).rstrip("/")
 
 
-def model_response(request: Request, label: str, engine: str, prompt: str | None = None) -> GeometryResponse:
-    filename, _ = export_glb(label or "Object", MODELS_DIR, prompt=prompt)
-    model_path = f"/v1/geometry/models/{filename}"
+def model_response(request: Request, label: str, confidence: float, image_path: Path | None = None, prompt: str | None = None) -> GeometryResponse:
+    generated = reconstruct(
+        ReconstructionRequest(label=label or "Object", confidence=confidence, image_path=image_path, prompt=prompt), MODELS_DIR
+    )
+    model_path = f"/v1/geometry/models/{generated.model_name}"
+    stl_path = f"/v1/geometry/models/{generated.stl_name}" if generated.stl_name else None
     model_url = f"{public_base(request)}{model_path}"
     job_id = uuid.uuid4().hex[:12]
     payload = GeometryResponse(
         ok=True,
         job_id=job_id,
-        engine=engine,
+        engine=generated.engine,
         status="done",
         label=label or "Object",
-        detected_family=infer_preset(label or "Object"),
-        model_name=filename,
+        detected_family=generated.detected_family,
+        model_name=generated.model_name,
         model_url=model_url,
         download_url=model_url,
+        stl_download_url=f"{public_base(request)}{stl_path}" if stl_path else None,
         created_at=time.time(),
-        notes="Procedural alpha GLB generated through provider-ready pipeline. Swap provider to TripoSR, TRELLIS, Hunyuan3D, or Stable Fast 3D without changing the frontend contract.",
+        notes=generated.notes,
     )
     JOBS[job_id] = payload.model_dump()
     return payload
@@ -128,21 +134,22 @@ async def classify_image(label: str = Form(default="Object"), image: Optional[Up
 @app.post("/v1/geometry/generate", response_model=GeometryResponse)
 def generate_geometry(payload: GeometryRequest, request: Request):
     label = classify_label(payload.label)
-    return model_response(request, label, "eye-provider-router-procedural-alpha", prompt=payload.prompt)
+    return model_response(request, label, payload.confidence, prompt=payload.prompt)
 
 @app.post("/v1/geometry/generate-from-image", response_model=GeometryResponse)
 async def generate_geometry_from_image(request: Request, label: str = Form(default="Object"), confidence: float = Form(default=0.7), image: Optional[UploadFile] = File(default=None)):
-    saved_name = None
+    image_path = None
     if image is not None:
         saved_name = f"{uuid.uuid4().hex}_{Path(image.filename or 'scan.jpg').name}"
-        (UPLOADS_DIR / saved_name).write_bytes(await image.read())
-    detected = classify_label(label, saved_name)
-    return model_response(request, detected, "eye-image-to-3d-provider-router-alpha")
+        image_path = UPLOADS_DIR / saved_name
+        image_path.write_bytes(await image.read())
+    detected = classify_label(label, image_path.name if image_path else None)
+    return model_response(request, detected, confidence, image_path=image_path)
 
 @app.post("/v1/geometry/edit", response_model=GeometryResponse)
 def edit_geometry(payload: EditRequest, request: Request):
     label = classify_label(payload.label)
-    return model_response(request, label, "eye-text-to-mesh-edit-alpha", prompt=payload.prompt)
+    return model_response(request, label, 1.0, prompt=payload.prompt)
 
 @app.post("/v1/geometry/prepare-print")
 def prepare_print(payload: PrintPrepRequest):
@@ -169,6 +176,6 @@ def download_model(model_name: str):
     safe_name = Path(model_name).name
     path = MODELS_DIR / safe_name
     if not path.exists():
-        fallback_name, fallback_path = export_glb("Object", MODELS_DIR)
-        path = fallback_path
-    return FileResponse(path, media_type="model/gltf-binary", filename=path.name)
+        raise HTTPException(status_code=404, detail="Model not found")
+    media_type = "model/gltf-binary" if path.suffix.lower() == ".glb" else "model/stl"
+    return FileResponse(path, media_type=media_type, filename=path.name)

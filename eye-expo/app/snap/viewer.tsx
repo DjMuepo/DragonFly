@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Image, Pressable, Platform, Linking } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Platform, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSnapStore } from '../../src/lib/useSnapStore';
 
@@ -14,13 +14,10 @@ function WebGlbViewer({ url }: { url: string }) {
 
 export default function ViewerScreen() {
   const router = useRouter();
-  const heroUri = useSnapStore((s) => s.heroUri);
-  const cutoutUri = useSnapStore((s) => s.cutoutUri);
   const targetLabel = useSnapStore((s) => s.targetLabel);
   const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
   const generatedModelName = useSnapStore((s) => s.generatedModelName);
   const modelDownloadUrl = useSnapStore((s) => s.modelDownloadUrl);
-  const imageUri = cutoutUri || heroUri;
   const modelUrl = generatedModelUrl?.startsWith('http') ? generatedModelUrl : undefined;
   const downloadUrl = modelDownloadUrl?.startsWith('http') ? modelDownloadUrl : modelUrl;
 
@@ -29,13 +26,13 @@ export default function ViewerScreen() {
       <Text style={styles.title}>3D Preview</Text>
       <Text style={styles.subtitle}>{generatedModelName || `${targetLabel || 'Object'} draft`}</Text>
       <View style={styles.viewerBox}>
-        {modelUrl && Platform.OS === 'web' ? <WebGlbViewer url={modelUrl} /> : <View style={styles.fallbackPreview}><View style={styles.cubeShadow} /><View style={styles.cube}>{imageUri ? <Image source={{ uri: imageUri }} style={styles.previewImage} /> : <Text style={styles.cubeText}>3D</Text>}</View></View>}
+        {modelUrl && Platform.OS === 'web' ? <WebGlbViewer url={modelUrl} /> : <View style={styles.unavailable}><Text style={styles.unavailableText}>{modelUrl ? 'Interactive 3D viewing is available on web.' : 'No generated model is available.'}</Text></View>}
       </View>
       <Text style={styles.label}>{targetLabel || 'Object'} {modelUrl ? 'GLB model' : 'draft preview'}</Text>
-      <Text style={styles.note}>{modelUrl ? 'Live GLB viewer connected. This is now ready for AI editing and print prep.' : 'No GLB model URL found yet. Showing stable fallback preview instead of crashing.'}</Text>
+      <Text style={styles.note}>{modelUrl ? 'Live GLB viewer connected. This is now ready for AI editing and print prep.' : 'Return to generation and retry. Model controls stay unavailable until the backend returns a valid URL.'}</Text>
       <View style={styles.actions}>
         {downloadUrl ? <Pressable style={styles.primaryButton} onPress={() => Linking.openURL(downloadUrl)}><Text style={styles.buttonText}>Open / Download GLB</Text></Pressable> : null}
-        <Pressable style={styles.secondaryButton} onPress={() => router.push('/snap/ai-edit')}><Text style={styles.buttonText}>Edit with AI</Text></Pressable>
+        {modelUrl ? <Pressable style={styles.secondaryButton} onPress={() => router.push('/snap/ai-edit')}><Text style={styles.buttonText}>Edit with AI</Text></Pressable> : <Pressable style={styles.primaryButton} onPress={() => router.replace('/snap/reconstruct')}><Text style={styles.buttonText}>Retry Generation</Text></Pressable>}
         <Pressable style={styles.primaryButton} onPress={() => router.push('/snap/result')}><Text style={styles.buttonText}>Back to Result</Text></Pressable>
         <Pressable style={styles.darkButton} onPress={() => router.push('/snap/more-angles')}><Text style={styles.buttonText}>Improve Scan</Text></Pressable>
       </View>
@@ -48,11 +45,8 @@ const styles = StyleSheet.create({
   title: { color: '#fff', fontSize: 30, fontWeight: '900', marginBottom: 8 },
   subtitle: { color: '#c8d0e7', marginBottom: 14, textAlign: 'center' },
   viewerBox: { width: 340, height: 340, borderRadius: 24, backgroundColor: '#141b34', marginBottom: 18, overflow: 'hidden' },
-  fallbackPreview: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  cubeShadow: { position: 'absolute', width: 150, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.35)', bottom: 44, transform: [{ scaleX: 1.2 }] },
-  cube: { width: 160, height: 190, borderRadius: 20, backgroundColor: '#18c6d1', transform: [{ perspective: 800 }, { rotateY: '-18deg' }, { rotateX: '8deg' }], alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.45)' },
-  previewImage: { width: 130, height: 150, resizeMode: 'contain', borderRadius: 14 },
-  cubeText: { color: '#fff', fontSize: 42, fontWeight: '900' },
+  unavailable: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
+  unavailableText: { color: '#c8d0e7', textAlign: 'center', fontWeight: '700' },
   label: { color: '#fff', fontSize: 20, fontWeight: '800', textAlign: 'center' },
   note: { color: '#c8d0e7', textAlign: 'center', marginTop: 10, maxWidth: 360, lineHeight: 20 },
   actions: { width: 310, gap: 12, marginTop: 24 },
