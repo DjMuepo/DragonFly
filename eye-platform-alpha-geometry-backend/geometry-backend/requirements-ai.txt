@@ -1,4 +1,7 @@
-# TripoSR is a source repository, not an installable Python package.
-# Run scripts/install_triposr.sh in the supported Python 3.11 environment.
+# Default AI reconstruction provider: DPT depth-to-mesh (CPU-compatible, no GPU required).
 torch>=2.2
-torchvision>=0.17
+transformers>=4.35
+
+# TripoSR is optional (requires CUDA GPU + torchmcubes build toolchain) and is not
+# the default provider. Run scripts/install_triposr.sh in a Python 3.11 environment
+# only if you need it, and set EYE_RECONSTRUCTION_PROVIDER=triposr.

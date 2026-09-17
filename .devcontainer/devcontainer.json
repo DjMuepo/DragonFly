@@ -6,5 +6,5 @@
       "version": "22"
     }
   },
-  "postCreateCommand": "python3.11 -m venv eye-platform-alpha-geometry-backend/geometry-backend/.venv && eye-platform-alpha-geometry-backend/geometry-backend/.venv/bin/pip install -r eye-platform-alpha-geometry-backend/geometry-backend/requirements.txt && eye-platform-alpha-geometry-backend/geometry-backend/scripts/install_triposr.sh"
+  "postCreateCommand": "python3.11 -m venv eye-platform-alpha-geometry-backend/geometry-backend/.venv && eye-platform-alpha-geometry-backend/geometry-backend/.venv/bin/pip install -r eye-platform-alpha-geometry-backend/geometry-backend/requirements.txt && bash eye-platform-alpha-geometry-backend/geometry-backend/scripts/install_triposr.sh"
 }

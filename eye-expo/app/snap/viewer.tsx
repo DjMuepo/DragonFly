@@ -8,7 +8,7 @@ function WebGlbViewer({ url }: { url: string }) {
   const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" />
 <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
 <style>html,body{margin:0;height:100%;background:#111827;overflow:hidden}model-viewer{width:100%;height:100%;background:radial-gradient(circle at center,#263b7a,#0b1020)}.badge{position:absolute;left:12px;top:12px;color:#fff;font:700 12px system-ui;background:rgba(0,0,0,.35);padding:6px 8px;border-radius:999px}</style>
-</head><body><div class="badge">Drag to rotate • Scroll to zoom</div><model-viewer src="${safeUrl}" camera-controls auto-rotate shadow-intensity="1" exposure="1.1" camera-orbit="45deg 65deg 3m" field-of-view="30deg" ar></model-viewer></body></html>`;
+</head><body><div class="badge">Drag to rotate • Scroll to zoom</div><model-viewer src="${safeUrl}" camera-controls auto-rotate shadow-intensity="1" exposure="1.1" camera-target="auto auto auto" ar></model-viewer></body></html>`;
   return React.createElement('iframe', { srcDoc: html, style: { border: 0, width: '100%', height: '100%' }, title: 'DragonFly 3D Model Viewer', allow: 'xr-spatial-tracking; fullscreen' } as any);
 }
 
