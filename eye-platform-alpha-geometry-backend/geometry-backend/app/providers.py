@@ -5,12 +5,26 @@ import mimetypes
 import os
 import sys
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from .mesh_factory import export_glb, export_trimesh, infer_preset
+
+
+def _load_backend_env() -> None:
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 @dataclass(frozen=True)
@@ -198,6 +212,7 @@ class ReplicateGPUProvider:
     _API_BASE = "https://api.replicate.com/v1"
 
     def generate(self, request: ReconstructionRequest, models_dir: Path) -> ReconstructionOutput:
+        _load_backend_env()
         if request.image_path is None or not request.image_path.exists():
             raise ValueError("Remote GPU reconstruction requires an uploaded source image")
         token = os.environ.get("REPLICATE_API_TOKEN")
@@ -207,8 +222,8 @@ class ReplicateGPUProvider:
                 "generate an API token at https://replicate.com/account/api-tokens, and set "
                 "REPLICATE_API_TOKEN in the backend environment."
             )
-        version = os.environ.get("EYE_REPLICATE_MODEL_VERSION", "").strip()
-        if not version:
+        model_ref = os.environ.get("EYE_REPLICATE_MODEL_VERSION", "").strip()
+        if not model_ref:
             raise RuntimeError(
                 "EYE_REPLICATE_MODEL_VERSION is not set. Pick a maintained image-to-3D model version id "
                 "from https://replicate.com/explore (for example a Hunyuan3D-2, TRELLIS, or Stable Fast 3D "
@@ -216,11 +231,12 @@ class ReplicateGPUProvider:
             )
 
         image_data_url = self._encode_image(request.image_path)
+        prediction_path, prediction_body, model_name = self._prediction_request(model_ref, image_data_url)
         prediction = self._request(
             "POST",
-            "/predictions",
+            prediction_path,
             token,
-            {"version": version, "input": {"image": image_data_url}},
+            prediction_body,
         )
         prediction_url = prediction["urls"]["get"]
 
@@ -240,7 +256,8 @@ class ReplicateGPUProvider:
 
         import trimesh
 
-        local_path = models_dir / f"_remote_{Path(mesh_url).name.split('?')[0]}"
+        parsed_name = Path(urllib.parse.urlparse(mesh_url).path).name or "replicate-mesh.glb"
+        local_path = models_dir / f"_remote_{parsed_name}"
         urllib.request.urlretrieve(mesh_url, local_path)
         mesh = trimesh.load(local_path, force="mesh")
         local_path.unlink(missing_ok=True)
@@ -253,9 +270,16 @@ class ReplicateGPUProvider:
             stl_name=model_path.with_suffix(".stl").name,
             stl_path=model_path.with_suffix(".stl"),
             detected_family=infer_preset(request.label),
-            notes=f"Remote GPU reconstruction completed via Replicate (model version {version[:12]}...).",
+            notes=f"Remote GPU reconstruction completed via Replicate ({model_name}).",
             provider_kind="ai",
         )
+
+    @staticmethod
+    def _prediction_request(model_ref: str, image_data_url: str) -> tuple[str, dict, str]:
+        if ":" in model_ref and "/" in model_ref.split(":", 1)[0]:
+            model_slug, _version = model_ref.split(":", 1)
+            return "/predictions", {"version": _version, "input": {"image": image_data_url}}, model_slug
+        return "/predictions", {"version": model_ref, "input": {"image": image_data_url}}, model_ref[:12]
 
     @staticmethod
     def _encode_image(image_path: Path) -> str:
@@ -265,6 +289,13 @@ class ReplicateGPUProvider:
 
     @staticmethod
     def _find_mesh_url(output) -> str | None:
+        if isinstance(output, dict) and "mesh" in output:
+            mesh = output["mesh"]
+            if isinstance(mesh, str):
+                return mesh
+            found = ReplicateGPUProvider._find_mesh_url(mesh)
+            if found:
+                return found
         candidates: list[str] = []
 
         def collect(value):
@@ -279,7 +310,8 @@ class ReplicateGPUProvider:
 
         collect(output)
         for url in candidates:
-            if url.lower().endswith((".glb", ".obj", ".ply")):
+            path = urllib.parse.urlparse(url).path.lower()
+            if path.endswith((".glb", ".obj", ".ply")):
                 return url
         return candidates[0] if candidates else None
 
@@ -292,8 +324,17 @@ class ReplicateGPUProvider:
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Authorization", f"Bearer {token}")
         req.add_header("Content-Type", "application/json")
-        with urllib.request.urlopen(req, timeout=60) as response:
-            return json.loads(response.read())
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            raw = error.read().decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(raw)
+                detail = payload.get("detail") or payload.get("title") or raw
+            except json.JSONDecodeError:
+                detail = raw or error.reason
+            raise RuntimeError(f"Replicate API error {error.code}: {detail}") from error
 
 
 def select_provider() -> ReconstructionProvider:
