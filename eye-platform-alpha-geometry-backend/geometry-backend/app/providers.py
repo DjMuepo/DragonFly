@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import base64
+import mimetypes
 import os
 import sys
+import time
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -183,6 +187,115 @@ class DPTDepthMeshProvider:
         )
 
 
+class ReplicateGPUProvider:
+    """Remote hosted-GPU single-image reconstruction via the Replicate API.
+
+    Requires REPLICATE_API_TOKEN. Model defaults to a maintained Hunyuan3D-2
+    version on Replicate; override with EYE_REPLICATE_MODEL_VERSION.
+    """
+
+    name = "replicate-remote-gpu"
+    _API_BASE = "https://api.replicate.com/v1"
+
+    def generate(self, request: ReconstructionRequest, models_dir: Path) -> ReconstructionOutput:
+        if request.image_path is None or not request.image_path.exists():
+            raise ValueError("Remote GPU reconstruction requires an uploaded source image")
+        token = os.environ.get("REPLICATE_API_TOKEN")
+        if not token:
+            raise RuntimeError(
+                "REPLICATE_API_TOKEN is not set. Create an account at https://replicate.com, "
+                "generate an API token at https://replicate.com/account/api-tokens, and set "
+                "REPLICATE_API_TOKEN in the backend environment."
+            )
+        version = os.environ.get("EYE_REPLICATE_MODEL_VERSION", "").strip()
+        if not version:
+            raise RuntimeError(
+                "EYE_REPLICATE_MODEL_VERSION is not set. Pick a maintained image-to-3D model version id "
+                "from https://replicate.com/explore (for example a Hunyuan3D-2, TRELLIS, or Stable Fast 3D "
+                "model) and set EYE_REPLICATE_MODEL_VERSION."
+            )
+
+        image_data_url = self._encode_image(request.image_path)
+        prediction = self._request(
+            "POST",
+            "/predictions",
+            token,
+            {"version": version, "input": {"image": image_data_url}},
+        )
+        prediction_url = prediction["urls"]["get"]
+
+        deadline = time.time() + 600
+        while prediction.get("status") not in {"succeeded", "failed", "canceled"}:
+            if time.time() > deadline:
+                raise RuntimeError("Replicate prediction timed out after 10 minutes")
+            time.sleep(3)
+            prediction = self._request("GET", prediction_url, token, None, absolute=True)
+
+        if prediction.get("status") != "succeeded":
+            raise RuntimeError(f"Replicate prediction failed: {prediction.get('error') or prediction.get('status')}")
+
+        mesh_url = self._find_mesh_url(prediction.get("output"))
+        if not mesh_url:
+            raise RuntimeError("Replicate prediction succeeded but returned no mesh output")
+
+        import trimesh
+
+        local_path = models_dir / f"_remote_{Path(mesh_url).name.split('?')[0]}"
+        urllib.request.urlretrieve(mesh_url, local_path)
+        mesh = trimesh.load(local_path, force="mesh")
+        local_path.unlink(missing_ok=True)
+
+        model_name, model_path = export_trimesh(mesh, request.label, models_dir)
+        return ReconstructionOutput(
+            engine=self.name,
+            model_name=model_name,
+            model_path=model_path,
+            stl_name=model_path.with_suffix(".stl").name,
+            stl_path=model_path.with_suffix(".stl"),
+            detected_family=infer_preset(request.label),
+            notes=f"Remote GPU reconstruction completed via Replicate (model version {version[:12]}...).",
+            provider_kind="ai",
+        )
+
+    @staticmethod
+    def _encode_image(image_path: Path) -> str:
+        mime = mimetypes.guess_type(str(image_path))[0] or "image/jpeg"
+        encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
+
+    @staticmethod
+    def _find_mesh_url(output) -> str | None:
+        candidates: list[str] = []
+
+        def collect(value):
+            if isinstance(value, str):
+                candidates.append(value)
+            elif isinstance(value, dict):
+                for item in value.values():
+                    collect(item)
+            elif isinstance(value, list):
+                for item in value:
+                    collect(item)
+
+        collect(output)
+        for url in candidates:
+            if url.lower().endswith((".glb", ".obj", ".ply")):
+                return url
+        return candidates[0] if candidates else None
+
+    @classmethod
+    def _request(cls, method: str, path: str, token: str, body: dict | None, absolute: bool = False):
+        import json
+
+        url = path if absolute else f"{cls._API_BASE}{path}"
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=60) as response:
+            return json.loads(response.read())
+
+
 def select_provider() -> ReconstructionProvider:
     requested = os.environ.get("EYE_RECONSTRUCTION_PROVIDER", "dpt-depth-mesh").strip().lower()
     if requested in {"", "procedural", "parametric"}:
@@ -191,6 +304,8 @@ def select_provider() -> ReconstructionProvider:
         return TripoSRProvider()
     if requested in {"dpt", "dpt-depth-mesh"}:
         return DPTDepthMeshProvider()
+    if requested in {"replicate", "remote-gpu", "hunyuan3d", "trellis"}:
+        return ReplicateGPUProvider()
     return UnavailableExternalProvider(requested)
 
 
