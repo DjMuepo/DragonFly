@@ -215,7 +215,7 @@ class ReplicateGPUProvider:
         _load_backend_env()
         if request.image_path is None or not request.image_path.exists():
             raise ValueError("Remote GPU reconstruction requires an uploaded source image")
-        token = os.environ.get("REPLICATE_API_TOKEN")
+        token = os.environ.get("REPLICATE_API_TOKEN", "").strip()
         if not token:
             raise RuntimeError(
                 "REPLICATE_API_TOKEN is not set. Create an account at https://replicate.com, "
@@ -322,11 +322,13 @@ class ReplicateGPUProvider:
         url = path if absolute else f"{cls._API_BASE}{path}"
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(url, data=data, method=method)
-        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Authorization", f"Bearer {token.strip()}")
         req.add_header("Content-Type", "application/json")
         try:
             with urllib.request.urlopen(req, timeout=60) as response:
-                return json.loads(response.read())
+                response_body = response.read()
+        except ValueError:
+            raise RuntimeError("Replicate request could not be sent. Check the backend REPLICATE_API_TOKEN setting.") from None
         except urllib.error.HTTPError as error:
             raw = error.read().decode("utf-8", errors="replace")
             try:
@@ -335,6 +337,7 @@ class ReplicateGPUProvider:
             except json.JSONDecodeError:
                 detail = raw or error.reason
             raise RuntimeError(f"Replicate API error {error.code}: {detail}") from error
+        return json.loads(response_body)
 
 
 def select_provider() -> ReconstructionProvider:
