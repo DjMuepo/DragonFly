@@ -5,3 +5,14 @@ services:
     plan: starter
     autoDeploy: true
     healthCheckPath: /health
+    envVars:
+      - key: EYE_RECONSTRUCTION_PROVIDER
+        value: replicate
+      - key: EYE_ALLOW_PROCEDURAL_FALLBACK
+        value: "0"
+      - key: REPLICATE_API_TOKEN
+        sync: false
+      - key: EYE_REPLICATE_MODEL_VERSION
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
