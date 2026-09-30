@@ -43,6 +43,9 @@ export function getGeometryApiBase() {
     const origin = window.location.origin;
     if (origin.includes('-8081.')) return cleanBase(origin.replace('-8081.', '-8010.'));
     if (origin.includes(':8081')) return cleanBase(origin.replace(':8081', ':8010'));
+    if (origin.includes('-8084.')) return cleanBase(origin.replace('-8084.', '-8023.'));
+    if (origin.includes(':8084')) return cleanBase(origin.replace(':8084', ':8023'));
+    if (origin.startsWith('https://')) throw new Error('EXPO_PUBLIC_GEOMETRY_API_BASE must be set to your public backend URL.');
   }
   return 'http://localhost:8010';
 }
@@ -63,14 +66,32 @@ function normalize(data: GeometryResponse): GeometryResponse {
   };
 }
 
+async function timedFetch(url: string, options?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('The connection timed out. Check your network and try again.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function waitForGeometryJob(job: GeometryJobResponse, onProgress?: (job: GeometryJobResponse) => void): Promise<GeometryResponse> {
   let current = job;
-  for (let attempt = 0; attempt < 180; attempt += 1) {
+  for (let attempt = 0; attempt < 720; attempt += 1) {
     onProgress?.(current);
-    if (current.status === 'done' && current.result?.model_url) return normalize(current.result);
+    if (current.status === 'done') {
+      if (!current.result?.model_url || !/^https?:\/\//i.test(absoluteUrl(current.result.model_url))) {
+        throw new Error('Geometry job completed without a valid model URL. Try again.');
+      }
+      return normalize(current.result);
+    }
     if (current.status === 'error') throw new Error(current.error || `${current.provider} reconstruction failed`);
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    const response = await fetch(`${getGeometryApiBase()}/v1/geometry/jobs/${encodeURIComponent(current.job_id)}`);
+    const response = await timedFetch(`${getGeometryApiBase()}/v1/geometry/jobs/${encodeURIComponent(current.job_id)}`);
     if (!response.ok) throw new Error(`Geometry job lookup failed (${response.status})`);
     current = (await response.json()) as GeometryJobResponse;
   }
@@ -79,18 +100,22 @@ async function waitForGeometryJob(job: GeometryJobResponse, onProgress?: (job: G
 
 export async function generateGeometryFromImage(params: { imageUri?: string; label?: string; confidence?: number; onProgress?: (job: GeometryJobResponse) => void }): Promise<GeometryResponse> {
   const label = params.label || 'Object';
-  if (!params.imageUri) return generateGeometryFromPrompt({ label });
+  if (!params.imageUri) throw new Error('Choose or capture a photo before generating a model.');
   const form = new FormData();
   form.append('label', label);
   form.append('confidence', String(params.confidence ?? 0.7));
   if (typeof window !== 'undefined') {
     const imageRes = await fetch(params.imageUri);
+    if (!imageRes.ok) throw new Error('Could not read the selected photo. Select it again and retry.');
     const blob = await imageRes.blob();
+    if (!blob.size || blob.size > 15 * 1024 * 1024 || (blob.type && !blob.type.startsWith('image/'))) {
+      throw new Error('Choose a valid image smaller than 15 MB.');
+    }
     form.append('image', blob, 'scan.jpg');
   } else {
     form.append('image', { uri: params.imageUri, name: 'scan.jpg', type: 'image/jpeg' } as any);
   }
-  const res = await fetch(`${getGeometryApiBase()}/v1/geometry/generate-from-image`, { method: 'POST', body: form });
+  const res = await timedFetch(`${getGeometryApiBase()}/v1/geometry/generate-from-image`, { method: 'POST', body: form });
   if (!res.ok) throw new Error(`Geometry backend failed (${res.status}): ${await res.text()}`);
   return waitForGeometryJob((await res.json()) as GeometryJobResponse, params.onProgress);
 }

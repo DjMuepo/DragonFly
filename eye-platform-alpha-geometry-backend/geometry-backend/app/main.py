@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 import os
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -11,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from PIL import Image, UnidentifiedImageError
 
 from .mesh_factory import infer_preset
 from .providers import ProceduralProvider, ReconstructionRequest, reconstruct, select_provider
@@ -84,7 +86,7 @@ class PrintPrepRequest(BaseModel):
 
 
 def public_base(request: Request) -> str:
-    return str(request.base_url).rstrip("/")
+    return (os.environ.get("PUBLIC_BASE_URL") or str(request.base_url)).rstrip("/")
 
 
 def _model_response(base_url: str, job_id: str, label: str, generated) -> GeometryResponse:
@@ -190,9 +192,17 @@ def generate_geometry(payload: GeometryRequest, request: Request, background: Ba
 async def generate_geometry_from_image(request: Request, background: BackgroundTasks, label: str = Form(default="Object"), confidence: float = Form(default=0.7), image: Optional[UploadFile] = File(default=None)):
     if image is None:
         raise HTTPException(status_code=400, detail="An image is required for AI reconstruction")
+    content = await image.read(15 * 1024 * 1024 + 1)
+    if not content or len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Upload a non-empty image smaller than 15 MB")
+    try:
+        with Image.open(BytesIO(content)) as source:
+            source.verify()
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise HTTPException(status_code=400, detail="The uploaded file is not a valid image") from None
     saved_name = f"{uuid.uuid4().hex}_{Path(image.filename or 'scan.jpg').name}"
     image_path = UPLOADS_DIR / saved_name
-    image_path.write_bytes(await image.read())
+    image_path.write_bytes(content)
     detected = classify_label(label, image_path.name if image_path else None)
     return _create_geometry_job(request, background, detected, confidence, image_path=image_path)
 

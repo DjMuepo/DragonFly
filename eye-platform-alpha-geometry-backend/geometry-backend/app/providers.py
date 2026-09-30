@@ -338,6 +338,7 @@ class ReplicateGPUProvider:
 
 
 def select_provider() -> ReconstructionProvider:
+    _load_backend_env()
     requested = os.environ.get("EYE_RECONSTRUCTION_PROVIDER", "dpt-depth-mesh").strip().lower()
     if requested in {"", "procedural", "parametric"}:
         return ProceduralProvider()

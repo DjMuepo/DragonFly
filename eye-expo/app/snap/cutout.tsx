@@ -1,18 +1,11 @@
-import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
 import { useSnapStore } from '../../src/lib/useSnapStore';
-import { cutoutImage } from '../../src/lib/cutoutImage';
 
 export default function CutoutScreen() {
   const router = useRouter();
   const heroUri = useSnapStore((s) => s.heroUri);
-  const cutoutUri = useSnapStore((s) => s.cutoutUri);
-  const setCutoutUri = useSnapStore((s) => s.setCutoutUri);
   const clear = useSnapStore((s) => s.clear);
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | undefined>();
 
   if (!heroUri) {
     return (
@@ -25,40 +18,13 @@ export default function CutoutScreen() {
     );
   }
 
-  const onIsolate = async () => {
-    try {
-      setLoading(true);
-      setError(undefined);
-      const result = await cutoutImage(heroUri);
-      setCutoutUri(result);
-    } catch (e: any) {
-      setError(e?.message || 'Cutout failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Cutout</Text>
-      <Text style={styles.subtitle}>Review the image and isolate the main object before continuing.</Text>
-
-      <Image source={{ uri: cutoutUri || heroUri }} style={styles.image} />
-
-      {loading ? (
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" />
-          <Text style={styles.loadingText}>Isolating object...</Text>
-        </View>
-      ) : null}
-
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <Text style={styles.title}>Review Photo</Text>
+      <Text style={styles.subtitle}>Check that the object is visible and in focus.</Text>
+      <Image source={{ uri: heroUri }} style={styles.image} />
 
       <View style={styles.actions}>
-        <Pressable style={styles.primaryButton} onPress={onIsolate}>
-          <Text style={styles.buttonText}>{cutoutUri ? 'Re-run Cutout' : 'Isolate Object'}</Text>
-        </Pressable>
-
         <Pressable style={styles.secondaryButton} onPress={() => router.push('/snap/process')}>
           <Text style={styles.buttonText}>Continue</Text>
         </Pressable>
@@ -82,13 +48,10 @@ export default function CutoutScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, justifyContent: 'center', backgroundColor: '#fff' },
+  container: { flex: 1, padding: 16, justifyContent: 'center', backgroundColor: '#fff' },
   title: { fontSize: 28, fontWeight: '800', textAlign: 'center', marginBottom: 8, color: '#111' },
   subtitle: { textAlign: 'center', color: '#555', marginBottom: 16, fontSize: 15 },
-  image: { width: '100%', height: 320, resizeMode: 'contain', marginBottom: 20, backgroundColor: '#f7f7f7', borderRadius: 16 },
-  loadingWrap: { alignItems: 'center', marginBottom: 14 },
-  loadingText: { marginTop: 10, color: '#666' },
-  error: { color: '#c62828', textAlign: 'center', marginBottom: 12 },
+  image: { width: '100%', maxHeight: 320, height: '42%', resizeMode: 'contain', marginBottom: 20, backgroundColor: '#f7f7f7', borderRadius: 8 },
   actions: { gap: 10 },
   primaryButton: { backgroundColor: '#18c6d1', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },
   secondaryButton: { backgroundColor: '#5b5f97', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },

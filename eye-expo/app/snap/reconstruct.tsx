@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, Image, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Image, Pressable, ActivityIndicator, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useSnapStore } from '../../src/lib/useSnapStore';
@@ -11,6 +11,7 @@ export default function ReconstructScreen() {
   const targetLabel = useSnapStore((s) => s.targetLabel);
   const clear = useSnapStore((s) => s.clear);
   const setGeneratedModel = useSnapStore((s) => s.setGeneratedModel);
+  const setGeneratedExport = useSnapStore((s) => s.setGeneratedExport);
   const setJobResultLinks = useSnapStore((s) => s.setJobResultLinks);
   const imageUri = cutoutUri || heroUri;
 
@@ -35,6 +36,10 @@ export default function ReconstructScreen() {
         setStage('building');
         setError(null);
         setProgress(0);
+        setEngine(null);
+        setGeneratedModel(undefined, undefined);
+        setGeneratedExport(undefined, undefined);
+        setJobResultLinks(undefined, undefined);
         const result = await generateGeometryFromImage({
           imageUri,
           label: targetLabel || 'Object',
@@ -49,6 +54,7 @@ export default function ReconstructScreen() {
         if (!alive) return;
 
         setGeneratedModel(result.model_url, result.model_name);
+        setGeneratedExport(result.stl_download_url, result.provider_kind);
         setJobResultLinks(result.model_url, result.download_url);
         setModelName(result.model_name);
         setEngine(result.engine);
@@ -56,8 +62,9 @@ export default function ReconstructScreen() {
       } catch (err: any) {
         if (!alive) return;
         setGeneratedModel(undefined, undefined);
+        setGeneratedExport(undefined, undefined);
         setJobResultLinks(undefined, undefined);
-        setError(err?.message || '3D generation failed. Check that the geometry backend is running on port 8010.');
+        setError(err?.message || '3D generation failed. Check your connection and try again.');
         setStage('error');
       }
     }
@@ -67,7 +74,7 @@ export default function ReconstructScreen() {
     return () => {
       alive = false;
     };
-  }, [attempt, imageUri, targetLabel, setGeneratedModel, setJobResultLinks]);
+  }, [attempt, imageUri, targetLabel, setGeneratedModel, setGeneratedExport, setJobResultLinks]);
 
   if (!imageUri) {
     return (
@@ -78,7 +85,7 @@ export default function ReconstructScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Generating 3D</Text>
       <Image source={{ uri: imageUri }} style={styles.image} />
       <Text style={styles.objectLabel}>Object: {targetLabel || 'Unknown object'}</Text>
@@ -121,10 +128,6 @@ export default function ReconstructScreen() {
               <Text style={styles.buttonText}>Save / Finish</Text>
             </Pressable>
 
-            <Pressable style={styles.darkButton} onPress={() => router.push('/snap/more-angles')}>
-              <Text style={styles.buttonText}>Improve Model</Text>
-            </Pressable>
-
             <Pressable
               style={styles.darkButton}
               onPress={() => {
@@ -137,13 +140,13 @@ export default function ReconstructScreen() {
           </View>
         </>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
-  image: { width: 240, height: 240, marginBottom: 18, resizeMode: 'contain', backgroundColor: '#f7f7f7', borderRadius: 16 },
+  container: { flexGrow: 1, padding: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  image: { width: '70%', maxWidth: 240, aspectRatio: 1, marginBottom: 18, resizeMode: 'contain', backgroundColor: '#f7f7f7', borderRadius: 8 },
   title: { fontSize: 28, fontWeight: '800', marginBottom: 16, color: '#111' },
   objectLabel: { fontSize: 20, fontWeight: '700', marginBottom: 16, textAlign: 'center', color: '#111' },
   status: { marginTop: 12, color: '#444', fontSize: 16, textAlign: 'center' },
@@ -154,7 +157,7 @@ const styles = StyleSheet.create({
   readyText: { textAlign: 'center', color: '#333', marginBottom: 8 },
   readySubtext: { textAlign: 'center', color: '#666', fontSize: 14, marginBottom: 4 },
   warning: { textAlign: 'center', color: '#9a5a00', marginTop: 8, fontSize: 12 },
-  actions: { width: 300, gap: 12 },
+  actions: { width: '100%', maxWidth: 300, gap: 12 },
   primaryButton: { backgroundColor: '#18c6d1', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },
   secondaryButton: { backgroundColor: '#5b5f97', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },
   darkButton: { backgroundColor: '#444', paddingVertical: 15, borderRadius: 12, alignItems: 'center' },

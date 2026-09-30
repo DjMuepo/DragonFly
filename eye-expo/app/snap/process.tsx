@@ -58,17 +58,17 @@ export default function ProcessScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>AI Processing</Text>
+      <Text style={styles.title}>Photo Ready</Text>
       <Image source={{ uri: imageUri }} style={styles.image} />
 
       {loading ? (
         <>
           <ActivityIndicator size="large" />
-          <Text style={styles.subtitle}>Analyzing image...</Text>
+          <Text style={styles.subtitle}>Preparing photo...</Text>
         </>
       ) : error ? (
         <>
-          <Text style={styles.error}>Detection failed</Text>
+          <Text style={styles.error}>Photo unavailable</Text>
           <Text style={styles.subtitle}>{error}</Text>
           <Pressable style={styles.primaryButton} onPress={() => router.replace('/snap/process')}>
             <Text style={styles.buttonText}>Try Again</Text>
@@ -76,19 +76,13 @@ export default function ProcessScreen() {
         </>
       ) : (
         <>
-          <Text style={styles.result}>Detected: {result?.label}</Text>
-          <Text style={styles.subtitle}>Confidence: {Math.round((result?.confidence || 0) * 100)}%</Text>
-          <Text style={styles.next}>We can generate a 3D result from this photo now.</Text>
-          <Text style={styles.optionalNote}>Adding 1–2 extra views is optional and may improve accuracy.</Text>
+          <Text style={styles.next}>Ready to generate a 3D model from this photo.</Text>
 
           <View style={styles.actions}>
             <Pressable style={styles.primaryButton} onPress={() => router.push('/snap/reconstruct')}>
               <Text style={styles.buttonText}>Generate 3D</Text>
             </Pressable>
 
-            <Pressable style={styles.secondaryButton} onPress={() => router.push('/snap/more-angles')}>
-              <Text style={styles.buttonText}>Improve with More Angles</Text>
-            </Pressable>
           </View>
         </>
       )}
@@ -97,15 +91,15 @@ export default function ProcessScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
-  image: { width: 260, height: 260, marginBottom: 20, resizeMode: 'contain', backgroundColor: '#f7f7f7', borderRadius: 16 },
+  container: { flex: 1, padding: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
+  image: { width: '75%', maxWidth: 260, aspectRatio: 1, marginBottom: 20, resizeMode: 'contain', backgroundColor: '#f7f7f7', borderRadius: 8 },
   title: { fontSize: 24, fontWeight: '800', marginBottom: 18, color: '#111' },
   result: { fontSize: 24, fontWeight: '800', marginTop: 10, textAlign: 'center', color: '#111' },
   subtitle: { color: '#666', marginTop: 10, textAlign: 'center' },
   next: { marginTop: 14, textAlign: 'center', color: '#222', maxWidth: 330, fontSize: 16 },
   optionalNote: { marginTop: 10, textAlign: 'center', color: '#666', maxWidth: 330, fontSize: 14 },
   error: { color: '#c62828', fontWeight: '800', fontSize: 18, marginTop: 8, textAlign: 'center' },
-  actions: { marginTop: 24, gap: 12, width: 300 },
+  actions: { marginTop: 24, gap: 12, width: '100%', maxWidth: 300 },
   primaryButton: { backgroundColor: '#18c6d1', paddingVertical: 15, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center' },
   secondaryButton: { backgroundColor: '#5b5f97', paddingVertical: 15, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center' },
   buttonText: { color: '#fff', fontWeight: '800', fontSize: 16 },

@@ -1,5 +1,6 @@
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useSnapStore } from '../../src/lib/useSnapStore';
@@ -9,15 +10,30 @@ export default function SnapCamera() {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const setHeroUri = useSnapStore((s) => s.setHeroUri);
   const setCutoutUri = useSnapStore((s) => s.setCutoutUri);
+
+  const onUpload = async () => {
+    try {
+      setError(null);
+      const selection = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.85 });
+      if (selection.canceled || !selection.assets[0]?.uri) return;
+      setHeroUri(selection.assets[0].uri);
+      setCutoutUri(undefined);
+      router.push('/snap/cutout');
+    } catch {
+      setError('Unable to open your photos. Please try again.');
+    }
+  };
 
   if (!permission) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
         <Text style={styles.centerText}>Opening camera...</Text>
+        <Pressable style={styles.primary} onPress={onUpload}><Text style={styles.primaryText}>Upload Photo</Text></Pressable>
       </View>
     );
   }
@@ -30,6 +46,8 @@ export default function SnapCamera() {
         <Pressable style={styles.primary} onPress={requestPermission}>
           <Text style={styles.primaryText}>Grant Camera Access</Text>
         </Pressable>
+        <Pressable style={styles.primary} onPress={onUpload}><Text style={styles.primaryText}>Upload Photo</Text></Pressable>
+        {error ? <Text style={styles.centerText}>{error}</Text> : null}
       </View>
     );
   }
@@ -47,6 +65,7 @@ export default function SnapCamera() {
       router.push('/snap/cutout');
     } catch (error) {
       console.warn('Capture failed:', error);
+      setError('Could not capture a photo. Try again or upload one.');
     } finally {
       setIsCapturing(false);
     }
@@ -59,6 +78,7 @@ export default function SnapCamera() {
       <View style={styles.topOverlay}>
         <Text style={styles.overlayTitle}>One-Photo Scan</Text>
         <Text style={styles.overlayText}>Center one object. Good light gives better 3D results.</Text>
+        {error ? <Text style={styles.overlayText}>{error}</Text> : null}
       </View>
 
       <View style={styles.controls}>
@@ -70,7 +90,9 @@ export default function SnapCamera() {
           {isCapturing ? <ActivityIndicator color="#111" /> : <View style={styles.shutterInner} />}
         </Pressable>
 
-        <View style={styles.secondaryPlaceholder} />
+        <Pressable style={styles.secondary} onPress={onUpload} accessibilityLabel="Upload photo">
+          <Text style={styles.secondaryText}>Upload</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -121,7 +143,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
   },
-  secondaryPlaceholder: { width: 84 },
   secondaryText: { color: '#fff', fontWeight: '700' },
   center: { flex: 1, backgroundColor: '#050505', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 14 },
   title: { color: '#fff', fontSize: 24, fontWeight: '800', textAlign: 'center' },

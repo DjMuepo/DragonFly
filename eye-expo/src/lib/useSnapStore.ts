@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 export type LicenseStatus = 'OK' | 'RESTRICTED' | 'UNKNOWN';
 export type Novelty = 'COMMON' | 'SOMEWHAT_UNIQUE' | 'UNIQUE';
@@ -36,6 +37,8 @@ type SnapState = {
   captured: ScanImage[];
   generatedModelUrl?: string;
   generatedModelName?: string;
+  generatedStlUrl?: string;
+  generatedProviderKind?: 'ai' | 'procedural_fallback';
   modelUrl?: string;
   downloadUrl?: string;
 
@@ -45,6 +48,7 @@ type SnapState = {
   setModelLinks: (modelUrl?: string, downloadUrl?: string) => void;
   addCaptured: (image: ScanImage) => void;
   setGeneratedModel: (url?: string, name?: string) => void;
+  setGeneratedExport: (stlUrl?: string, providerKind?: 'ai' | 'procedural_fallback') => void;
   clear: () => void;
 
   // Compatibility with the larger existing app
@@ -121,6 +125,8 @@ const resetState = () => ({
   captured: [],
   generatedModelUrl: undefined,
   generatedModelName: undefined,
+  generatedStlUrl: undefined,
+  generatedProviderKind: undefined,
   modelUrl: undefined,
   downloadUrl: undefined,
   captureMode: 'single' as CaptureMode,
@@ -149,17 +155,18 @@ const resetState = () => ({
   sharedDesign: undefined,
 });
 
-export const useSnapStore = create<SnapState>((set, get) => ({
+export const useSnapStore = create<SnapState>()(persist((set, get) => ({
   ...resetState(),
   userProfile: { interests: [], skillLevel: 'beginner' },
   authToken: undefined,
   currentUser: undefined,
 
-  setHeroUri: (heroUri) => set({ heroUri }),
+  setHeroUri: (heroUri) => set({ heroUri, generatedModelUrl: undefined, generatedModelName: undefined, generatedStlUrl: undefined, generatedProviderKind: undefined, modelDownloadUrl: undefined }),
   setCutoutUri: (cutoutUri) => set({ cutoutUri }),
   setTargetLabel: (targetLabel) => set({ targetLabel }),
   addCaptured: (image) => set((state) => ({ captured: [...state.captured, image] })),
   setGeneratedModel: (generatedModelUrl, generatedModelName) => set({ generatedModelUrl, generatedModelName, modelUrl: generatedModelUrl }),
+  setGeneratedExport: (generatedStlUrl, generatedProviderKind) => set({ generatedStlUrl, generatedProviderKind }),
   setModelLinks: (modelUrl, downloadUrl) => set({ modelUrl, downloadUrl, generatedModelUrl: modelUrl }),
   clear: () => set(resetState()),
 
@@ -188,4 +195,15 @@ export const useSnapStore = create<SnapState>((set, get) => ({
   setPrintRequest: (printRequest) => set({ printRequest }),
   setSharedDesign: (sharedDesign) => set({ sharedDesign }),
   reset: () => set(resetState()),
+}), {
+  name: 'dragonfly-alpha-result',
+  storage: typeof localStorage === 'undefined' ? undefined : createJSONStorage(() => localStorage),
+  partialize: (state) => ({
+    targetLabel: state.targetLabel,
+    generatedModelUrl: state.generatedModelUrl,
+    generatedModelName: state.generatedModelName,
+    generatedStlUrl: state.generatedStlUrl,
+    generatedProviderKind: state.generatedProviderKind,
+    modelDownloadUrl: state.modelDownloadUrl,
+  }),
 }));
