@@ -3,8 +3,8 @@ services:
     name: eye-geometry-backend
     env: docker
     rootDir: eye-platform-alpha-geometry-backend/geometry-backend
-    dockerfilePath: ./eye-platform-alpha-geometry-backend/geometry-backend/Dockerfile
-    dockerContext: ./eye-platform-alpha-geometry-backend/geometry-backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     plan: starter
     autoDeploy: true
     healthCheckPath: /health
