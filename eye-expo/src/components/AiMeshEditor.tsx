@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { editGeometry } from '../lib/geometryApi';
 import { useSnapStore } from '../lib/useSnapStore';
@@ -28,10 +28,12 @@ export function AiMeshEditor() {
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const submitting = useRef(false);
   const revision = modelHistory[modelHistoryIndex];
 
   const applyEdit = async (instruction = prompt) => {
-    if (!generatedModelUrl || !instruction.trim() || busy) return;
+    if (!generatedModelUrl || !instruction.trim() || submitting.current) return;
+    submitting.current = true;
     try {
       if (!modelHistory.length) {
         initializeModelHistory({ url: generatedModelUrl, name: generatedModelName || 'original.glb', stlUrl: generatedStlUrl, providerKind: generatedProviderKind || 'ai', summary: 'Original reconstructed model' });
@@ -53,6 +55,7 @@ export function AiMeshEditor() {
     } catch (error: any) {
       setMessage(error?.message || 'The edit could not be applied. Try a supported instruction.');
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
@@ -78,6 +81,16 @@ export function AiMeshEditor() {
         placeholderTextColor="#7c8499"
         multiline
         editable={!busy}
+        returnKeyType="send"
+        submitBehavior="blurAndSubmit"
+        onSubmitEditing={(event) => void applyEdit(event.nativeEvent.text)}
+        onKeyPress={(event) => {
+          if (event.nativeEvent.key === 'Enter') {
+            event.preventDefault();
+            void applyEdit(prompt);
+          }
+        }}
+        accessibilityLabel="Editing instruction"
       />
       <View style={styles.examples}>
         {EXAMPLES.map((example) => (

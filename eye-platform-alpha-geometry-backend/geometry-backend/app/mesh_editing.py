@@ -11,6 +11,24 @@ class UnsupportedEditError(ValueError):
     pass
 
 
+class ClarificationRequiredError(UnsupportedEditError):
+    pass
+
+
+@dataclass(frozen=True)
+class StructuredOperation:
+    kind: str
+    axis: int | None = None
+    value: float | str | None = None
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class EditIntent:
+    operations: list[StructuredOperation]
+    source: str = "structured-language-interpreter"
+
+
 @dataclass(frozen=True)
 class EditResult:
     mesh: trimesh.Trimesh
@@ -47,9 +65,73 @@ class FeatureEditingProvider:
         return EditResult(trimesh.util.concatenate((mesh, base)), "geometry", f"Added a {thickness:g} mm base.", ["add base"])
 
 
+class EditIntentInterpreter:
+    axis_names = {"width": 0, "wide": 0, "depth": 1, "deep": 1, "height": 2, "high": 2, "tall": 2}
+
+    def interpret(self, mesh: trimesh.Trimesh, prompt: str) -> EditIntent:
+        text = re.sub(r"[^a-z0-9.%+-]+", " ", prompt.lower()).strip()
+        operations: list[StructuredOperation] = []
+
+        for match in re.finditer(r"(\d+(?:\.\d+)?)\s*%\s*(larger|bigger|smaller)", text):
+            percent, direction = float(match.group(1)), match.group(2)
+            factor = 1 + percent / 100 if direction != "smaller" else max(0.01, 1 - percent / 100)
+            operations.append(StructuredOperation("scale_uniform", value=factor, description=f"scale {percent:g}% {direction}"))
+
+        dimension_words = "width|wide|depth|deep|height|high|tall"
+        for match in re.finditer(rf"(\d+(?:\.\d+)?)\s*mm\s*({dimension_words})", text):
+            target, word = float(match.group(1)), match.group(2)
+            axis = self.axis_names[word]
+            operations.append(StructuredOperation("set_dimension", axis, target, f"set {self._axis_label(axis)} to {target:g} mm"))
+
+        for match in re.finditer(rf"increase\s+(?:the\s+|its\s+)?({dimension_words})\s+by\s+(\d+(?:\.\d+)?)\s*(%|mm)", text):
+            word, amount, unit = match.group(1), float(match.group(2)), match.group(3)
+            axis = self.axis_names[word]
+            kind = "scale_axis" if unit == "%" else "increase_dimension"
+            value = 1 + amount / 100 if unit == "%" else amount
+            operations.append(StructuredOperation(kind, axis, value, f"increase {self._axis_label(axis)} by {amount:g}{unit}"))
+
+        for match in re.finditer(rf"(\d+(?:\.\d+)?)\s*%\s*({dimension_words})(?:er)?", text):
+            amount, word = float(match.group(1)), match.group(2)
+            axis = self.axis_names[word]
+            operations.append(StructuredOperation("scale_axis", axis, 1 + amount / 100, f"increase {self._axis_label(axis)} by {amount:g}%"))
+
+        rotation = re.search(r"rotate(?:\s+(?:the\s+)?(?:bottle|object|model|item|it|this\s+\w+))?\s+(-?\d+(?:\.\d+)?)\s*(?:degrees?|deg)?", text)
+        if rotation:
+            axis_match = re.search(r"(?:around|on)\s+(?:the\s+)?([xyz])(?:\s*axis)?", text)
+            axis = {"x": 0, "y": 1, "z": 2}.get(axis_match.group(1) if axis_match else "z", 2)
+            angle = float(rotation.group(1))
+            operations.append(StructuredOperation("rotate", axis, angle, f"rotate {angle:g} degrees around {'xyz'[axis]}"))
+
+        directions = {"right": (0, 1), "left": (0, -1), "back": (1, 1), "forward": (1, -1), "up": (2, 1), "down": (2, -1)}
+        for word, (axis, sign) in directions.items():
+            match = re.search(rf"(?:move|position|shift)(?:\s+(?:the\s+)?(?:bottle|object|model|item|it))?\s+(\d+(?:\.\d+)?)\s*mm\s+{word}", text)
+            if match:
+                amount = float(match.group(1))
+                operations.append(StructuredOperation("translate", axis, sign * amount, f"move {amount:g} mm {word}"))
+
+        color = next((name for name in ("red", "blue", "green", "black", "white", "gray", "yellow") if re.search(rf"\b{name}\b", text)), None)
+        if color and re.search(r"\b(color|colour|material|paint|make|change)\b", text):
+            operations.append(StructuredOperation("material", value=color, description=f"material {color}"))
+
+        vague = next((word for word in ("taller", "wider", "deeper", "larger", "bigger", "smaller") if re.search(rf"\b{word}\b", text)), None)
+        if vague and not operations:
+            dimension = {"taller": "height", "wider": "width", "deeper": "depth"}.get(vague, "overall size")
+            raise ClarificationRequiredError(f"How much should I change the {dimension}? Enter a percentage or an exact dimension in mm.")
+        if not operations:
+            raise UnsupportedEditError(
+                "Unsupported instruction. Try a percentage or exact dimension, rotation, position, color, or add/remove base."
+            )
+        return EditIntent(operations)
+
+    @staticmethod
+    def _axis_label(axis: int) -> str:
+        return ("width", "depth", "height")[axis]
+
+
 class DeterministicMeshEditor:
     def __init__(self) -> None:
         self.features = FeatureEditingProvider()
+        self.interpreter = EditIntentInterpreter()
 
     def apply(self, mesh: trimesh.Trimesh, prompt: str) -> EditResult:
         text = prompt.strip()
@@ -60,65 +142,40 @@ class DeterministicMeshEditor:
             return feature_result
 
         result = mesh.copy()
-        lowered = text.lower()
-        operations: list[str] = []
-        scale = np.ones(3)
-
-        percent = self._number(r"(\d+(?:\.\d+)?)\s*%\s*(?:larger|bigger)", lowered)
-        if percent is not None:
-            scale *= 1 + percent / 100
-            operations.append(f"scale {percent:g}% larger")
-        percent = self._number(r"(\d+(?:\.\d+)?)\s*%\s*(?:smaller)", lowered)
-        if percent is not None:
-            scale *= max(0.01, 1 - percent / 100)
-            operations.append(f"scale {percent:g}% smaller")
-        for axis, words in enumerate((("wide", "width"), ("deep", "depth"), ("tall", "high", "height"))):
-            target = self._number(rf"(\d+(?:\.\d+)?)\s*mm\s*(?:{'|'.join(words)})", lowered)
-            if target is not None:
-                scale[axis] *= target / max(float(result.extents[axis]), 1e-6)
-                operations.append(f"set {words[-1]} to {target:g} mm")
-            wider = self._number(rf"(\d+(?:\.\d+)?)\s*%\s*(?:{'|'.join(words)})(?:er)?", lowered)
-            if wider is not None:
-                scale[axis] *= 1 + wider / 100
-                operations.append(f"increase {words[-1]} {wider:g}%")
-        if not np.allclose(scale, 1):
-            transform = np.eye(4)
-            transform[:3, :3] = np.diag(scale)
-            result.apply_transform(transform)
-
-        rotation = self._number(r"rotate\s+(-?\d+(?:\.\d+)?)\s*(?:degrees?|deg)?", lowered)
-        if rotation is not None:
-            axis_name = next((axis for axis in "xyz" if re.search(rf"(?:around|on)\s+(?:the\s+)?{axis}(?:\s*axis)?", lowered)), "z")
-            axis = {"x": (1, 0, 0), "y": (0, 1, 0), "z": (0, 0, 1)}[axis_name]
-            result.apply_transform(trimesh.transformations.rotation_matrix(np.radians(rotation), axis, point=result.centroid))
-            operations.append(f"rotate {rotation:g} degrees around {axis_name}")
-
-        translation = np.zeros(3)
-        directions = {"right": (0, 1), "left": (0, -1), "back": (1, 1), "forward": (1, -1), "up": (2, 1), "down": (2, -1)}
-        for word, (axis, sign) in directions.items():
-            distance = self._number(rf"(?:move|position|shift)\s+(\d+(?:\.\d+)?)\s*mm\s+{word}", lowered)
-            if distance is not None:
-                translation[axis] += sign * distance
-                operations.append(f"move {distance:g} mm {word}")
-        if not np.allclose(translation, 0):
-            result.apply_translation(translation)
-
-        color = next((name for name in ("red", "blue", "green", "black", "white", "gray", "yellow") if re.search(rf"\b{name}\b", lowered)), None)
-        if color and re.search(r"\b(color|colour|material|paint|make)\b", lowered):
-            rgba = {"red": [220, 45, 45, 255], "blue": [45, 105, 220, 255], "green": [45, 170, 90, 255], "black": [25, 25, 25, 255], "white": [240, 240, 240, 255], "gray": [130, 130, 130, 255], "yellow": [235, 190, 35, 255]}[color]
-            result.visual.face_colors = rgba
-            return EditResult(result, "visual_only", f"Changed the preview material to {color}; STL geometry is unchanged.", [f"material {color}"])
-
-        if not operations:
-            raise UnsupportedEditError(
-                "Unsupported instruction. Try scaling, exact dimensions, rotation, positioning, color, or adding/removing a base."
-            )
-        return EditResult(result, "geometry", "; ".join(operations).capitalize() + ".", operations)
-
-    @staticmethod
-    def _number(pattern: str, text: str) -> float | None:
-        match = re.search(pattern, text)
-        return float(match.group(1)) if match else None
+        intent = self.interpreter.interpret(result, text)
+        descriptions: list[str] = []
+        visual_only = True
+        colors = {"red": [220, 45, 45, 255], "blue": [45, 105, 220, 255], "green": [45, 170, 90, 255], "black": [25, 25, 25, 255], "white": [240, 240, 240, 255], "gray": [130, 130, 130, 255], "yellow": [235, 190, 35, 255]}
+        for operation in intent.operations:
+            descriptions.append(operation.description)
+            if operation.kind == "material":
+                result.visual.vertex_colors = np.tile(colors[str(operation.value)], (len(result.vertices), 1))
+                continue
+            visual_only = False
+            if operation.kind == "scale_uniform":
+                result.apply_scale(float(operation.value))
+            elif operation.kind in {"scale_axis", "set_dimension", "increase_dimension"}:
+                factors = np.ones(3)
+                if operation.kind == "scale_axis":
+                    factors[operation.axis] = float(operation.value)
+                elif operation.kind == "set_dimension":
+                    factors[operation.axis] = float(operation.value) / max(float(result.extents[operation.axis]), 1e-6)
+                else:
+                    factors[operation.axis] = (float(result.extents[operation.axis]) + float(operation.value)) / max(float(result.extents[operation.axis]), 1e-6)
+                transform = np.eye(4)
+                transform[:3, :3] = np.diag(factors)
+                result.apply_transform(transform)
+            elif operation.kind == "rotate":
+                axis = np.eye(3)[operation.axis]
+                result.apply_transform(trimesh.transformations.rotation_matrix(np.radians(float(operation.value)), axis, point=result.centroid))
+            elif operation.kind == "translate":
+                translation = np.zeros(3)
+                translation[operation.axis] = float(operation.value)
+                result.apply_translation(translation)
+        if visual_only:
+            color = next(str(operation.value) for operation in intent.operations if operation.kind == "material")
+            return EditResult(result, "visual_only", f"Changed the preview material to {color}; STL geometry is unchanged.", descriptions)
+        return EditResult(result, "geometry", "; ".join(descriptions).capitalize() + ".", descriptions)
 
 
 def validate_for_print(mesh: trimesh.Trimesh) -> dict:
