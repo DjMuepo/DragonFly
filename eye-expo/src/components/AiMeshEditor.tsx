@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { editGeometry } from '../lib/geometryApi';
+import { calibrateGeometry, editGeometry } from '../lib/geometryApi';
 import { useSnapStore } from '../lib/useSnapStore';
 
 const EXAMPLES = [
@@ -26,6 +26,7 @@ export function AiMeshEditor() {
   const redoModelEdit = useSnapStore((state) => state.redoModelEdit);
   const resetModelEdits = useSnapStore((state) => state.resetModelEdits);
   const [prompt, setPrompt] = useState('');
+  const [measurement, setMeasurement] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const submitting = useRef(false);
@@ -36,7 +37,7 @@ export function AiMeshEditor() {
     submitting.current = true;
     try {
       if (!modelHistory.length) {
-        initializeModelHistory({ url: generatedModelUrl, name: generatedModelName || 'original.glb', stlUrl: generatedStlUrl, providerKind: generatedProviderKind || 'ai', summary: 'Original reconstructed model' });
+        initializeModelHistory({ url: generatedModelUrl, name: generatedModelName || 'original.glb', stlUrl: generatedStlUrl, providerKind: generatedProviderKind || 'ai', summary: 'Original reconstructed model', scaleStatus: 'unknown' });
       }
       setBusy(true);
       setMessage('Applying geometry edit...');
@@ -48,12 +49,35 @@ export function AiMeshEditor() {
         providerKind: result.provider_kind,
         changeKind: result.change_kind,
         summary: result.edit_summary || result.notes,
+        scaleStatus: result.scale_status,
+        calibration: result.calibration,
         validation: result.validation,
       });
       setPrompt('');
       setMessage(result.change_kind === 'visual_only' ? `${result.edit_summary} Visual only; mesh dimensions are unchanged.` : result.edit_summary || 'Geometry updated.');
     } catch (error: any) {
       setMessage(error?.message || 'The edit could not be applied. Try a supported instruction.');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  };
+
+  const calibrate = async () => {
+    if (!generatedModelUrl || !measurement.trim() || submitting.current) return;
+    submitting.current = true;
+    try {
+      if (!modelHistory.length) {
+        initializeModelHistory({ url: generatedModelUrl, name: generatedModelName || 'original.glb', stlUrl: generatedStlUrl, providerKind: generatedProviderKind || 'ai', summary: 'Original reconstructed model', scaleStatus: 'unknown' });
+      }
+      setBusy(true);
+      setMessage('Calibrating physical scale...');
+      const result = await calibrateGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, measurement: measurement.trim() });
+      applyModelRevision({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, changeKind: 'geometry', summary: result.edit_summary || result.notes, scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
+      setMeasurement('');
+      setMessage(result.edit_summary || 'Model calibrated.');
+    } catch (error: any) {
+      setMessage(error?.message || 'Calibration failed. Enter one known dimension and try again.');
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -73,6 +97,19 @@ export function AiMeshEditor() {
     <View style={styles.panel}>
       <Text style={styles.title}>Edit with AI guidance</Text>
       <Text style={styles.help}>Describe a measurable change. Geometry edits alter exports; color changes are visual only.</Text>
+      <View style={styles.scalePanel}>
+        <Text style={styles.scaleTitle}>Dimensions &amp; Scale</Text>
+        <Text style={revision?.scaleStatus === 'calibrated' ? styles.calibrated : styles.estimated}>
+          {revision?.scaleStatus === 'calibrated' ? 'Calibrated physical dimensions' : 'Estimated proportions — physical scale unknown'}
+        </Text>
+        {revision?.validation?.dimensions_mm ? (
+          <Text style={styles.validationText}>W {revision.validation.dimensions_mm.width} × D {revision.validation.dimensions_mm.depth} × H {revision.validation.dimensions_mm.height} mm</Text>
+        ) : revision?.validation?.dimensions_model_units ? (
+          <Text style={styles.validationText}>Model-unit bounds: W {revision.validation.dimensions_model_units.width} × D {revision.validation.dimensions_model_units.depth} × H {revision.validation.dimensions_model_units.height}</Text>
+        ) : null}
+        <TextInput style={styles.measurementInput} value={measurement} onChangeText={setMeasurement} placeholder="This bottle is 180 mm tall" placeholderTextColor="#7c8499" editable={!busy} returnKeyType="done" onSubmitEditing={() => void calibrate()} accessibilityLabel="Known physical dimension" />
+        <Pressable style={[styles.calibrateButton, (busy || !measurement.trim()) && styles.disabled]} onPress={() => void calibrate()} disabled={busy || !measurement.trim()}><Text style={styles.calibrateText}>Calibrate Model</Text></Pressable>
+      </View>
       <TextInput
         style={styles.input}
         value={prompt}
@@ -112,7 +149,8 @@ export function AiMeshEditor() {
         <View style={styles.validation}>
           <Text style={styles.validationTitle}>Print validation</Text>
           <Text style={styles.validationText}>{revision.validation.watertight ? 'Watertight mesh' : 'Not watertight'}</Text>
-          <Text style={styles.validationText}>W {revision.validation.dimensions_mm.width} × D {revision.validation.dimensions_mm.depth} × H {revision.validation.dimensions_mm.height} mm</Text>
+          <Text style={styles.validationText}>{revision.validation.scale_status === 'calibrated' && revision.validation.dimensions_mm ? `W ${revision.validation.dimensions_mm.width} × D ${revision.validation.dimensions_mm.depth} × H ${revision.validation.dimensions_mm.height} mm` : 'Physical dimensions unknown until calibrated'}</Text>
+          <Text style={styles.validationText}>Minimum feature thickness: {revision.validation.minimum_feature_thickness_status === 'measured' ? `${revision.validation.minimum_feature_thickness_mm} mm` : 'not measured'}</Text>
           {revision.validation.warnings.map((warning) => <Text key={warning} style={styles.warning}>{warning}</Text>)}
         </View>
       ) : null}
@@ -129,6 +167,13 @@ const styles = StyleSheet.create({
   panel: { width: '100%', maxWidth: 420, marginTop: 22, padding: 14, backgroundColor: '#141b34', borderRadius: 8, borderWidth: 1, borderColor: '#26385f' },
   title: { color: '#fff', fontSize: 20, fontWeight: '900', textAlign: 'center' },
   help: { color: '#c8d0e7', textAlign: 'center', marginTop: 6, lineHeight: 19 },
+  scalePanel: { marginTop: 12, padding: 10, borderRadius: 8, backgroundColor: '#0b1020' },
+  scaleTitle: { color: '#fff', fontWeight: '900', fontSize: 16 },
+  calibrated: { color: '#63d69b', marginTop: 4, fontWeight: '800' },
+  estimated: { color: '#ffcf70', marginTop: 4, fontWeight: '800' },
+  measurementInput: { minHeight: 44, marginTop: 10, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#141b34', borderWidth: 1, borderColor: '#31456f', color: '#fff' },
+  calibrateButton: { minHeight: 44, marginTop: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#5b5f97' },
+  calibrateText: { color: '#fff', fontWeight: '900' },
   input: { minHeight: 82, marginTop: 12, padding: 12, borderRadius: 8, backgroundColor: '#0b1020', borderWidth: 1, borderColor: '#31456f', color: '#fff', textAlignVertical: 'top' },
   examples: { marginTop: 10, gap: 7 },
   example: { paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#1d2a4d' },

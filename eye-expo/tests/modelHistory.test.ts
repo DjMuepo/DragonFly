@@ -5,8 +5,8 @@ function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
 }
 
-const original: ModelRevision = { url: 'original.glb', name: 'original.glb', stlUrl: 'original.stl', providerKind: 'ai' };
-const first: ModelRevision = { url: 'first.glb', name: 'first.glb', stlUrl: 'first.stl', providerKind: 'deterministic_edit', changeKind: 'geometry' };
+const original: ModelRevision = { url: 'original.glb', name: 'original.glb', stlUrl: 'original.stl', providerKind: 'ai', scaleStatus: 'unknown' };
+const first: ModelRevision = { url: 'first.glb', name: 'first.glb', stlUrl: 'first.stl', providerKind: 'calibration', changeKind: 'geometry', scaleStatus: 'calibrated', calibration: { axis: 'height', value_mm: 180, source_measurement: 'This bottle is 180 mm tall.' } };
 const second: ModelRevision = { url: 'second.glb', name: 'second.glb', providerKind: 'visual_only', changeKind: 'visual_only' };
 
 let state = appendRevision([], -1, original);
@@ -19,9 +19,11 @@ state = undoRevision(state.history, state.index);
 assert(currentRevision(state)?.url === 'original.glb', 'second undo should reach original');
 state = redoRevision(state.history, state.index);
 assert(currentRevision(state)?.url === 'first.glb', 'redo should restore edit');
+assert(currentRevision(state)?.calibration?.value_mm === 180, 'redo should preserve calibration');
 state = appendRevision(state.history, state.index, second);
 assert(state.history.map((revision) => revision.url).join(',') === 'original.glb,first.glb,second.glb', 'new edit should replace redo branch');
 state = resetRevisions(state.history);
 assert(state.index === 0, 'reset should select original index');
 assert(currentRevision(state)?.url === 'original.glb', 'reset should restore original model');
+assert(currentRevision(state)?.scaleStatus === 'unknown', 'reset should restore original unknown scale');
 console.log('model history PASS');

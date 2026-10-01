@@ -56,7 +56,7 @@ export default function ReconstructScreen() {
 
         setGeneratedModel(result.model_url, result.model_name);
         setGeneratedExport(result.stl_download_url, result.provider_kind);
-        initializeModelHistory({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, summary: 'Original reconstructed model' });
+        initializeModelHistory({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, summary: 'Original reconstructed model', scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
         setJobResultLinks(result.model_url, result.download_url);
         setModelName(result.model_name);
         setEngine(`${result.engine} (${result.provider_kind})`);

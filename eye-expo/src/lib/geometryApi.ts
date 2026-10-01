@@ -2,7 +2,7 @@ export type GeometryResponse = {
   ok: boolean;
   job_id: string;
   engine: string;
-  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only';
+  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only' | 'calibration';
   status: string;
   label: string;
   detected_family?: string;
@@ -17,9 +17,16 @@ export type GeometryResponse = {
   operations?: string[];
   validation?: {
     watertight: boolean;
-    dimensions_mm: { width: number; depth: number; height: number };
+    mesh_integrity: { winding_consistent: boolean; body_count: number; vertices: number; faces: number };
+    scale_status: 'unknown' | 'calibrated';
+    dimensions_mm: { width: number; depth: number; height: number } | null;
+    dimensions_model_units: { width: number; depth: number; height: number } | null;
+    minimum_feature_thickness_mm: number | null;
+    minimum_feature_thickness_status: 'not_measured' | 'measured';
     warnings: string[];
   };
+  scale_status: 'unknown' | 'calibrated';
+  calibration?: { axis: 'width' | 'depth' | 'height'; value_mm: number; source_measurement: string };
 };
 
 export type GeometryJobResponse = {
@@ -27,7 +34,7 @@ export type GeometryJobResponse = {
   status: 'queued' | 'processing' | 'done' | 'error';
   progress: number;
   provider: string;
-  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only';
+  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only' | 'calibration';
   error?: string;
   result?: GeometryResponse;
 };
@@ -137,6 +144,16 @@ export async function editGeometry(params: { label?: string; modelUrl?: string; 
     body: JSON.stringify({ label: params.label || 'Object', model_url: params.modelUrl, prompt: params.prompt }),
   });
   if (!res.ok) throw new Error(`Edit backend failed (${res.status}): ${await res.text()}`);
+  return waitForGeometryJob((await res.json()) as GeometryJobResponse);
+}
+
+export async function calibrateGeometry(params: { label?: string; modelUrl: string; measurement: string }): Promise<GeometryResponse> {
+  const res = await timedFetch(`${getGeometryApiBase()}/v1/geometry/calibrate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label: params.label || 'Object', model_url: params.modelUrl, measurement: params.measurement }),
+  });
+  if (!res.ok) throw new Error(`Calibration failed (${res.status}): ${await res.text()}`);
   return waitForGeometryJob((await res.json()) as GeometryJobResponse);
 }
 

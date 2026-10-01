@@ -41,7 +41,7 @@ class FeatureEditingProvider:
     name = "deterministic-feature-editor"
     supported_features = ("base",)
 
-    def apply(self, mesh: trimesh.Trimesh, prompt: str) -> EditResult | None:
+    def apply(self, mesh: trimesh.Trimesh, prompt: str, scale_status: str = "unknown") -> EditResult | None:
         lowered = prompt.lower()
         feature_request = re.search(r"\b(add|remove|delete|cut|create)\b", lowered)
         if not feature_request:
@@ -50,6 +50,8 @@ class FeatureEditingProvider:
             raise UnsupportedEditError(
                 "This editor currently supports adding or removing a base. Holes, handles, and freeform parts require a configured generative editing provider."
             )
+        if scale_status != "calibrated" and re.search(r"\d+(?:\.\d+)?\s*mm", lowered):
+            raise ClarificationRequiredError("Calibrate the model before adding a feature with a physical millimeter size.")
         if re.search(r"\b(remove|delete)\b", lowered):
             parts = list(mesh.split(only_watertight=False))
             if len(parts) < 2:
@@ -59,10 +61,18 @@ class FeatureEditingProvider:
             return EditResult(trimesh.util.concatenate(remaining), "geometry", "Removed the lowest separate base feature.", ["remove base"])
 
         thickness_match = re.search(r"(?:base\s+)?(\d+(?:\.\d+)?)\s*mm\s*(?:thick|thickness)?", lowered)
-        thickness = float(thickness_match.group(1)) if thickness_match else max(2.0, float(mesh.extents[2]) * 0.08)
+        if thickness_match:
+            thickness = float(thickness_match.group(1))
+            summary = f"Added a {thickness:g} mm base."
+        elif scale_status == "calibrated":
+            thickness = max(2.0, float(mesh.extents[2]) * 0.08)
+            summary = f"Added a {thickness:g} mm base."
+        else:
+            thickness = float(mesh.extents[2]) * 0.08
+            summary = "Added a proportional base; physical thickness remains unknown until calibration."
         base = trimesh.creation.box(extents=(float(mesh.extents[0]) * 1.1, float(mesh.extents[1]) * 1.1, thickness))
         base.apply_translation((float(mesh.centroid[0]), float(mesh.centroid[1]), float(mesh.bounds[0][2]) - thickness / 2))
-        return EditResult(trimesh.util.concatenate((mesh, base)), "geometry", f"Added a {thickness:g} mm base.", ["add base"])
+        return EditResult(trimesh.util.concatenate((mesh, base)), "geometry", summary, ["add base"])
 
 
 class EditIntentInterpreter:
@@ -133,16 +143,19 @@ class DeterministicMeshEditor:
         self.features = FeatureEditingProvider()
         self.interpreter = EditIntentInterpreter()
 
-    def apply(self, mesh: trimesh.Trimesh, prompt: str) -> EditResult:
+    def apply(self, mesh: trimesh.Trimesh, prompt: str, scale_status: str = "unknown") -> EditResult:
         text = prompt.strip()
         if not text:
             raise UnsupportedEditError("Enter an editing instruction.")
-        feature_result = self.features.apply(mesh, text)
+        feature_result = self.features.apply(mesh, text, scale_status=scale_status)
         if feature_result:
             return feature_result
 
         result = mesh.copy()
         intent = self.interpreter.interpret(result, text)
+        physical_operations = {"set_dimension", "increase_dimension", "translate"}
+        if scale_status != "calibrated" and any(operation.kind in physical_operations for operation in intent.operations):
+            raise ClarificationRequiredError("Calibrate the model with one known measurement before using millimeter dimensions or positions.")
         descriptions: list[str] = []
         visual_only = True
         colors = {"red": [220, 45, 45, 255], "blue": [45, 105, 220, 255], "green": [45, 170, 90, 255], "black": [25, 25, 25, 255], "white": [240, 240, 240, 255], "gray": [130, 130, 130, 255], "yellow": [235, 190, 35, 255]}
@@ -178,13 +191,33 @@ class DeterministicMeshEditor:
         return EditResult(result, "geometry", "; ".join(descriptions).capitalize() + ".", descriptions)
 
 
-def validate_for_print(mesh: trimesh.Trimesh) -> dict:
+def validate_for_print(mesh: trimesh.Trimesh, scale_status: str = "unknown") -> dict:
     extents = [round(float(value), 2) for value in mesh.extents]
+    parts = list(mesh.split(only_watertight=False))
     warnings: list[str] = []
     if not mesh.is_watertight:
         warnings.append("Mesh is not watertight and may need repair before printing.")
-    if min(extents) < 1:
+    if not mesh.is_winding_consistent:
+        warnings.append("Mesh face winding is inconsistent.")
+    if scale_status == "calibrated" and min(extents) < 1:
         warnings.append("One dimension is under 1 mm and may be too thin to print.")
-    if len(list(mesh.split(only_watertight=False))) > 1:
+    if len(parts) > 1:
         warnings.append("Mesh contains multiple disconnected parts.")
-    return {"watertight": bool(mesh.is_watertight), "dimensions_mm": {"width": extents[0], "depth": extents[1], "height": extents[2]}, "warnings": warnings}
+    if scale_status != "calibrated":
+        warnings.append("Physical dimensions are unknown until the model is calibrated with a real measurement.")
+    warnings.append("Minimum feature or wall thickness has not been measured; inspect or slice the model before printing.")
+    return {
+        "watertight": bool(mesh.is_watertight),
+        "mesh_integrity": {
+            "winding_consistent": bool(mesh.is_winding_consistent),
+            "body_count": len(parts),
+            "vertices": int(len(mesh.vertices)),
+            "faces": int(len(mesh.faces)),
+        },
+        "scale_status": scale_status,
+        "dimensions_mm": {"width": extents[0], "depth": extents[1], "height": extents[2]} if scale_status == "calibrated" else None,
+        "dimensions_model_units": {"width": extents[0], "depth": extents[1], "height": extents[2]} if scale_status != "calibrated" else None,
+        "minimum_feature_thickness_mm": None,
+        "minimum_feature_thickness_status": "not_measured",
+        "warnings": warnings,
+    }

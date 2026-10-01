@@ -29,9 +29,16 @@ export type ModelRevision = {
   providerKind: string;
   changeKind?: 'geometry' | 'visual_only';
   summary?: string;
+  scaleStatus?: 'unknown' | 'calibrated';
+  calibration?: { axis: 'width' | 'depth' | 'height'; value_mm: number; source_measurement: string };
   validation?: {
     watertight: boolean;
-    dimensions_mm: { width: number; depth: number; height: number };
+    mesh_integrity: { winding_consistent: boolean; body_count: number; vertices: number; faces: number };
+    scale_status: 'unknown' | 'calibrated';
+    dimensions_mm: { width: number; depth: number; height: number } | null;
+    dimensions_model_units: { width: number; depth: number; height: number } | null;
+    minimum_feature_thickness_mm: number | null;
+    minimum_feature_thickness_status: 'not_measured' | 'measured';
     warnings: string[];
   };
 };
