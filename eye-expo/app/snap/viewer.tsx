@@ -1,16 +1,57 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform, Linking, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSnapStore } from '../../src/lib/useSnapStore';
 import { AiMeshEditor } from '../../src/components/AiMeshEditor';
 
 function WebGlbViewer({ url }: { url: string }) {
-  const safeUrl = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" />
-<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
-<style>html,body{margin:0;height:100%;background:#141b34;overflow:hidden}model-viewer{width:100%;height:100%;touch-action:pan-y}#status{position:absolute;left:0;right:0;bottom:12px;color:#fff;text-align:center;font:14px sans-serif;background:#141b34;padding:8px}</style>
-</head><body><model-viewer id="model" src="${safeUrl}" camera-controls auto-rotate shadow-intensity="1" exposure="1.1" camera-target="auto auto auto"></model-viewer><div id="status" role="status">Loading model...</div><script>const model=document.getElementById('model');const status=document.getElementById('status');model.addEventListener('load',()=>{status.hidden=true});model.addEventListener('error',()=>{status.textContent='Model unavailable. Return to result and retry generation.'});setTimeout(()=>{if(!status.hidden)status.textContent='Model is taking longer than expected. Check your connection.'},30000);</script></body></html>`;
-  return React.createElement('iframe', { srcDoc: html, style: { border: 0, width: '100%', height: '100%' }, title: 'DragonFly 3D Model Viewer', allow: 'xr-spatial-tracking; fullscreen' } as any);
+  const viewerRef = useRef<any>(null);
+  const [status, setStatus] = useState('Loading model...');
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (!document.querySelector('script[data-dragonfly-model-viewer]')) {
+      const script = document.createElement('script');
+      script.type = 'module';
+      script.src = 'https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js';
+      script.dataset.dragonflyModelViewer = 'true';
+      document.head.appendChild(script);
+    }
+  }, []);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    let cancelled = false;
+    setStatus('Loading model...');
+    const loaded = () => setStatus('');
+    const failed = () => setStatus('Model unavailable. Return to result and retry generation.');
+    viewer.addEventListener('load', loaded);
+    viewer.addEventListener('error', failed);
+    if (typeof customElements !== 'undefined') {
+      customElements.whenDefined('model-viewer').then(() => {
+        if (cancelled || !viewerRef.current) return;
+        viewerRef.current.removeAttribute('src');
+        requestAnimationFrame(() => {
+          if (!cancelled && viewerRef.current) viewerRef.current.setAttribute('src', url);
+        });
+      });
+    }
+    const timeout = setTimeout(() => setStatus((current) => current ? 'Model is taking longer than expected. Check your connection.' : ''), 30000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      viewer.removeEventListener('load', loaded);
+      viewer.removeEventListener('error', failed);
+    };
+  }, [url]);
+
+  return (
+    <View style={styles.webViewer}>
+      {React.createElement('model-viewer', { key: url, ref: viewerRef, src: url, loading: 'eager', 'camera-controls': true, 'auto-rotate': true, 'shadow-intensity': '1', exposure: '1.1', 'camera-target': 'auto auto auto', style: { width: '100%', height: '100%', touchAction: 'pan-y' } } as any)}
+      {status ? <View style={styles.viewerStatus}><Text style={styles.viewerStatusText}>{status}</Text></View> : null}
+    </View>
+  );
 }
 
 export default function ViewerScreen() {
@@ -26,8 +67,8 @@ export default function ViewerScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>3D Preview</Text>
       <Text style={styles.subtitle}>{generatedModelName || `${targetLabel || 'Object'} model`}</Text>
-      <View style={styles.viewerBox}>
-        {modelUrl && Platform.OS === 'web' ? <WebGlbViewer url={modelUrl} /> : <View style={styles.unavailable}><Text style={styles.unavailableText}>{modelUrl ? 'Interactive 3D viewing is available on web.' : 'No generated model is available.'}</Text></View>}
+      <View key={modelUrl || 'unavailable'} style={styles.viewerBox}>
+        {modelUrl && Platform.OS === 'web' ? <WebGlbViewer key={modelUrl} url={modelUrl} /> : <View style={styles.unavailable}><Text style={styles.unavailableText}>{modelUrl ? 'Interactive 3D viewing is available on web.' : 'No generated model is available.'}</Text></View>}
       </View>
       <Text style={styles.label}>{targetLabel || 'Object'} {modelUrl ? '3D model' : 'model unavailable'}</Text>
       <Text style={styles.note}>{modelUrl ? 'Drag to rotate. Pinch or scroll to zoom.' : 'Return to generation and retry.'}</Text>
@@ -47,6 +88,9 @@ const styles = StyleSheet.create({
   title: { color: '#fff', fontSize: 30, fontWeight: '900', marginBottom: 8 },
   subtitle: { color: '#c8d0e7', marginBottom: 14, textAlign: 'center' },
   viewerBox: { width: '100%', maxWidth: 420, aspectRatio: 1, borderRadius: 8, backgroundColor: '#141b34', marginBottom: 18, overflow: 'hidden' },
+  webViewer: { flex: 1, backgroundColor: '#141b34' },
+  viewerStatus: { position: 'absolute', left: 0, right: 0, bottom: 12, padding: 8, backgroundColor: '#141b34' },
+  viewerStatusText: { color: '#fff', textAlign: 'center' },
   unavailable: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
   unavailableText: { color: '#c8d0e7', textAlign: 'center', fontWeight: '700' },
   label: { color: '#fff', fontSize: 20, fontWeight: '800', textAlign: 'center' },
