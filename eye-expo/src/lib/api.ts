@@ -38,28 +38,18 @@ export type JobGetResponse = {
 };
 
 function baseUrl(): string {
-  // Set this in your shell before running: EXPO_PUBLIC_API_BASE=http://YOUR_LAN_IP:8000
-  return (process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:8000').replace(/\/$/, '');
+  const configured = process.env.EXPO_PUBLIC_API_BASE || process.env.EXPO_PUBLIC_GEOMETRY_API_BASE;
+  if (!configured) throw new Error('Set EXPO_PUBLIC_GEOMETRY_API_BASE to the public backend URL.');
+  return configured.replace(/\/$/, '');
 }
 
 const API_BASE = baseUrl();
 
 
 export function geometryBaseUrl(): string {
-  const explicit = process.env.EXPO_PUBLIC_GEOMETRY_API_BASE;
+  const explicit = process.env.EXPO_PUBLIC_GEOMETRY_API_BASE || process.env.EXPO_PUBLIC_API_BASE;
   if (explicit) return explicit.replace(/\/$/, '');
-
-  if (typeof window !== 'undefined' && window.location?.hostname) {
-    const { protocol, hostname } = window.location;
-    if (hostname.includes('-8081.app.github.dev')) {
-      return `${protocol}//${hostname.replace('-8081.app.github.dev', '-8010.app.github.dev')}`;
-    }
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:8010';
-    }
-  }
-
-  return 'http://localhost:8010';
+  throw new Error('Set EXPO_PUBLIC_GEOMETRY_API_BASE to the public backend URL.');
 }
 
 export function geometryUrl(pathOrUrl?: string): string | undefined {

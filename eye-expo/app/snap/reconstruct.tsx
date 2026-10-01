@@ -57,7 +57,7 @@ export default function ReconstructScreen() {
         setGeneratedExport(result.stl_download_url, result.provider_kind);
         setJobResultLinks(result.model_url, result.download_url);
         setModelName(result.model_name);
-        setEngine(result.engine);
+        setEngine(`${result.engine} (${result.provider_kind})`);
         setStage('ready');
       } catch (err: any) {
         if (!alive) return;

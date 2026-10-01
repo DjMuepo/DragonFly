@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, Pressable, ActivityIndicator, Image } from 'rea
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useSnapStore } from '../../src/lib/useSnapStore';
-import { draftPhoto, previewPhoto, geometryPreviewPhoto, reconstructPhoto, reconstructPhotoSet, logEvent, applyLearnedDefaults } from '../../src/lib/api';
+import { draftPhoto, previewPhoto, geometryPreviewPhoto, reconstructPhoto, reconstructPhotoSet, logEvent, applyLearnedDefaults, geometryUrl } from '../../src/lib/api';
 
 export default function DraftModel() {
   const router = useRouter();
@@ -32,7 +32,7 @@ export default function DraftModel() {
         if (!alive) return;
         setVisionReconstruct(r);
         setVisionDraft({ classification: d.classification, draft: d.draft, geometry: g.geometry, parametric: r.parametric_draft });
-        setVisionPreviewUrl((process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:8000').replace(/\/$/, '') + d.preview_url);
+        setVisionPreviewUrl(geometryUrl(d.preview_url));
       } catch (e) {
         // ignore
       } finally {

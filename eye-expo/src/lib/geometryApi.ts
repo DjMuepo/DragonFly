@@ -37,17 +37,9 @@ function cleanBase(url: string) {
 }
 
 export function getGeometryApiBase() {
-  const envBase = process.env.EXPO_PUBLIC_GEOMETRY_API_BASE;
+  const envBase = process.env.EXPO_PUBLIC_GEOMETRY_API_BASE || process.env.EXPO_PUBLIC_API_BASE;
   if (envBase) return cleanBase(envBase);
-  if (typeof window !== 'undefined') {
-    const origin = window.location.origin;
-    if (origin.includes('-8081.')) return cleanBase(origin.replace('-8081.', '-8010.'));
-    if (origin.includes(':8081')) return cleanBase(origin.replace(':8081', ':8010'));
-    if (origin.includes('-8084.')) return cleanBase(origin.replace('-8084.', '-8023.'));
-    if (origin.includes(':8084')) return cleanBase(origin.replace(':8084', ':8023'));
-    if (origin.startsWith('https://')) throw new Error('EXPO_PUBLIC_GEOMETRY_API_BASE must be set to your public backend URL.');
-  }
-  return 'http://localhost:8010';
+  throw new Error('EXPO_PUBLIC_GEOMETRY_API_BASE must be set to your public backend URL.');
 }
 
 function absoluteUrl(pathOrUrl: string) {

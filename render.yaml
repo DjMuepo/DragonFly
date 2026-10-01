@@ -19,3 +19,18 @@ services:
         sync: false
       - key: PUBLIC_BASE_URL
         sync: false
+
+
+  - type: web
+    name: dragonfly-frontend
+    runtime: static
+    rootDir: eye-expo
+    buildCommand: npm ci && npm run build:web
+    staticPublishPath: ./dist
+    envVars:
+      - key: EXPO_PUBLIC_GEOMETRY_API_BASE
+        value: https://eye-geometry-backend.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
