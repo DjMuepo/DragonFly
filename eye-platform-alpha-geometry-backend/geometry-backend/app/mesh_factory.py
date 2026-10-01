@@ -154,7 +154,7 @@ def _parametric_mesh(label: str, prompt: str | None = None) -> trimesh.Trimesh:
     return mesh
 
 
-def normalize_and_validate(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+def normalize_and_validate(mesh: trimesh.Trimesh, center: bool = True) -> trimesh.Trimesh:
     result = mesh.copy()
     result.remove_duplicate_faces()
     result.remove_degenerate_faces()
@@ -162,17 +162,18 @@ def normalize_and_validate(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     result.merge_vertices()
     if result.is_empty or len(result.faces) == 0:
         raise ValueError("Generated mesh contains no faces")
-    result.apply_translation(-result.bounding_box.centroid)
+    if center:
+        result.apply_translation(-result.bounding_box.centroid)
     if not np.all(np.isfinite(result.extents)) or float(np.max(result.extents)) <= 0:
         raise ValueError("Generated mesh has invalid bounds")
     return result
 
 
-def export_trimesh(mesh: trimesh.Trimesh, label: str, models_dir: Path) -> Tuple[str, Path]:
+def export_trimesh(mesh: trimesh.Trimesh, label: str, models_dir: Path, center: bool = True) -> Tuple[str, Path]:
     models_dir.mkdir(parents=True, exist_ok=True)
     filename = f"{slugify(label)}-{str(int(time.time() * 1000))[-7:]}.glb"
     path = models_dir / filename
-    normalized = normalize_and_validate(mesh)
+    normalized = normalize_and_validate(mesh, center=center)
     normalized.export(path, file_type="glb")
     normalized.export(path.with_suffix(".stl"), file_type="stl")
     return filename, path

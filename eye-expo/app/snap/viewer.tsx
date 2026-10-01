@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable, Platform, Linking, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSnapStore } from '../../src/lib/useSnapStore';
+import { AiMeshEditor } from '../../src/components/AiMeshEditor';
 
 function WebGlbViewer({ url }: { url: string }) {
   const safeUrl = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -30,6 +31,7 @@ export default function ViewerScreen() {
       </View>
       <Text style={styles.label}>{targetLabel || 'Object'} {modelUrl ? '3D model' : 'model unavailable'}</Text>
       <Text style={styles.note}>{modelUrl ? 'Drag to rotate. Pinch or scroll to zoom.' : 'Return to generation and retry.'}</Text>
+      {modelUrl ? <AiMeshEditor /> : null}
       <View style={styles.actions}>
         {downloadUrl ? <Pressable style={styles.primaryButton} onPress={() => Linking.openURL(downloadUrl)}><Text style={styles.buttonText}>Open / Download GLB</Text></Pressable> : null}
         {!modelUrl ? <Pressable style={styles.primaryButton} onPress={() => router.replace('/snap/reconstruct')}><Text style={styles.buttonText}>Retry Generation</Text></Pressable> : null}

@@ -12,6 +12,7 @@ export default function ReconstructScreen() {
   const clear = useSnapStore((s) => s.clear);
   const setGeneratedModel = useSnapStore((s) => s.setGeneratedModel);
   const setGeneratedExport = useSnapStore((s) => s.setGeneratedExport);
+  const initializeModelHistory = useSnapStore((s) => s.initializeModelHistory);
   const setJobResultLinks = useSnapStore((s) => s.setJobResultLinks);
   const imageUri = cutoutUri || heroUri;
 
@@ -55,6 +56,7 @@ export default function ReconstructScreen() {
 
         setGeneratedModel(result.model_url, result.model_name);
         setGeneratedExport(result.stl_download_url, result.provider_kind);
+        initializeModelHistory({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, summary: 'Original reconstructed model' });
         setJobResultLinks(result.model_url, result.download_url);
         setModelName(result.model_name);
         setEngine(`${result.engine} (${result.provider_kind})`);
@@ -74,7 +76,7 @@ export default function ReconstructScreen() {
     return () => {
       alive = false;
     };
-  }, [attempt, imageUri, targetLabel, setGeneratedModel, setGeneratedExport, setJobResultLinks]);
+  }, [attempt, imageUri, targetLabel, setGeneratedModel, setGeneratedExport, initializeModelHistory, setJobResultLinks]);
 
   if (!imageUri) {
     return (

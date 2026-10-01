@@ -2,7 +2,7 @@ export type GeometryResponse = {
   ok: boolean;
   job_id: string;
   engine: string;
-  provider_kind: 'ai' | 'procedural_fallback';
+  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only';
   status: string;
   label: string;
   detected_family?: string;
@@ -12,6 +12,14 @@ export type GeometryResponse = {
   stl_download_url?: string;
   created_at: number;
   notes?: string;
+  change_kind?: 'geometry' | 'visual_only';
+  edit_summary?: string;
+  operations?: string[];
+  validation?: {
+    watertight: boolean;
+    dimensions_mm: { width: number; depth: number; height: number };
+    warnings: string[];
+  };
 };
 
 export type GeometryJobResponse = {
@@ -19,7 +27,7 @@ export type GeometryJobResponse = {
   status: 'queued' | 'processing' | 'done' | 'error';
   progress: number;
   provider: string;
-  provider_kind: 'ai' | 'procedural_fallback';
+  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only';
   error?: string;
   result?: GeometryResponse;
 };

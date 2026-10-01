@@ -6,6 +6,7 @@ import os
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, Optional
+from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,8 @@ from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 
 from .mesh_factory import infer_preset
+from .mesh_factory import export_trimesh
+from .mesh_editing import DeterministicMeshEditor, FeatureEditingProvider, UnsupportedEditError, validate_for_print
 from .providers import ProceduralProvider, ReconstructionRequest, reconstruct, select_provider
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -61,6 +64,10 @@ class GeometryResponse(BaseModel):
     stl_download_url: Optional[str] = None
     created_at: float
     notes: str
+    change_kind: Optional[str] = None
+    edit_summary: Optional[str] = None
+    operations: list[str] = Field(default_factory=list)
+    validation: Optional[dict] = None
 
 
 class GeometryJobResponse(BaseModel):
@@ -89,7 +96,7 @@ def public_base(request: Request) -> str:
     return (os.environ.get("PUBLIC_BASE_URL") or str(request.base_url)).rstrip("/")
 
 
-def _model_response(base_url: str, job_id: str, label: str, generated) -> GeometryResponse:
+def _model_response(base_url: str, job_id: str, label: str, generated, edit_metadata: Optional[dict] = None) -> GeometryResponse:
     model_path = f"/v1/geometry/models/{generated.model_name}"
     stl_path = f"/v1/geometry/models/{generated.stl_name}" if generated.stl_name else None
     model_url = f"{base_url}{model_path}"
@@ -107,6 +114,7 @@ def _model_response(base_url: str, job_id: str, label: str, generated) -> Geomet
         stl_download_url=f"{base_url}{stl_path}" if stl_path else None,
         created_at=time.time(),
         notes=generated.notes,
+        **(edit_metadata or {}),
     )
     return payload
 
@@ -151,6 +159,56 @@ def _create_geometry_job(request: Request, background: BackgroundTasks, label: s
     }
     background.add_task(_run_generation, job_id, public_base(request), label, confidence, image_path, prompt)
     return GeometryJobResponse(**JOBS[job_id])
+
+
+def _source_model_path(model_url: str | None) -> Path:
+    if not model_url:
+        raise UnsupportedEditError("Generate a model before editing it.")
+    filename = Path(urlparse(model_url).path).name
+    path = MODELS_DIR / filename
+    if not filename.lower().endswith(".glb") or not path.is_file():
+        raise UnsupportedEditError("The source model is unavailable. Return to the scan result and try again.")
+    return path
+
+
+def _run_edit(job_id: str, base_url: str, label: str, model_url: str | None, prompt: str) -> None:
+    import trimesh
+    from .providers import ReconstructionOutput
+
+    job = JOBS[job_id]
+    job.update(status="processing", progress=35)
+    try:
+        source = trimesh.load(_source_model_path(model_url), force="mesh")
+        edited = DeterministicMeshEditor().apply(source, prompt)
+        model_name, model_path = export_trimesh(edited.mesh, f"{label}-edited", MODELS_DIR, center=False)
+        exported = trimesh.load(model_path, force="mesh")
+        generated = ReconstructionOutput(
+            engine="deterministic-mesh-editor",
+            model_name=model_name,
+            model_path=model_path,
+            stl_name=model_path.with_suffix(".stl").name,
+            stl_path=model_path.with_suffix(".stl"),
+            detected_family=infer_preset(label),
+            notes=edited.summary,
+            provider_kind="deterministic_edit" if edited.change_kind == "geometry" else "visual_only",
+        )
+        metadata = {
+            "change_kind": edited.change_kind,
+            "edit_summary": edited.summary,
+            "operations": edited.operations,
+            "validation": validate_for_print(exported),
+        }
+        job.update(
+            status="done",
+            progress=100,
+            provider=generated.engine,
+            provider_kind=generated.provider_kind,
+            result=_model_response(base_url, job_id, label, generated, metadata).model_dump(),
+        )
+    except (UnsupportedEditError, ValueError) as error:
+        job.update(status="error", progress=100, error=str(error))
+    except Exception:
+        job.update(status="error", progress=100, error="The model could not be edited. Try a simpler instruction.")
 
 
 def classify_label(label: str | None, filename: str | None = None) -> str:
@@ -209,7 +267,27 @@ async def generate_geometry_from_image(request: Request, background: BackgroundT
 @app.post("/v1/geometry/edit", response_model=GeometryJobResponse, status_code=202)
 def edit_geometry(payload: EditRequest, request: Request, background: BackgroundTasks):
     label = classify_label(payload.label)
-    return _create_geometry_job(request, background, label, 1.0, prompt=payload.prompt)
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "progress": 0,
+        "provider": "deterministic-mesh-editor",
+        "provider_kind": "deterministic_edit",
+        "error": None,
+        "result": None,
+    }
+    background.add_task(_run_edit, job_id, public_base(request), label, payload.model_url, payload.prompt)
+    return GeometryJobResponse(**JOBS[job_id])
+
+
+@app.get("/v1/geometry/edit/capabilities")
+def edit_capabilities():
+    return {
+        "deterministic": ["scale", "dimensions", "rotation", "position", "material color"],
+        "features": list(FeatureEditingProvider.supported_features),
+        "unsupported": ["holes", "handles", "freeform additions", "semantic part removal"],
+    }
 
 @app.post("/v1/geometry/prepare-print")
 def prepare_print(payload: PrintPrepRequest):

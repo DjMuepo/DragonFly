@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { appendRevision, currentRevision, redoRevision, resetRevisions, undoRevision } from './modelHistory';
 
 export type LicenseStatus = 'OK' | 'RESTRICTED' | 'UNKNOWN';
 export type Novelty = 'COMMON' | 'SOMEWHAT_UNIQUE' | 'UNIQUE';
@@ -21,6 +22,20 @@ export type ScanImage = {
   confidence?: number;
 };
 
+export type ModelRevision = {
+  url: string;
+  name: string;
+  stlUrl?: string;
+  providerKind: string;
+  changeKind?: 'geometry' | 'visual_only';
+  summary?: string;
+  validation?: {
+    watertight: boolean;
+    dimensions_mm: { width: number; depth: number; height: number };
+    warnings: string[];
+  };
+};
+
 export type UserProfile = {
   name?: string;
   interests: string[];
@@ -38,9 +53,11 @@ type SnapState = {
   generatedModelUrl?: string;
   generatedModelName?: string;
   generatedStlUrl?: string;
-  generatedProviderKind?: 'ai' | 'procedural_fallback';
+  generatedProviderKind?: string;
   modelUrl?: string;
   downloadUrl?: string;
+  modelHistory: ModelRevision[];
+  modelHistoryIndex: number;
 
   setHeroUri: (uri?: string) => void;
   setCutoutUri: (uri?: string) => void;
@@ -48,7 +65,12 @@ type SnapState = {
   setModelLinks: (modelUrl?: string, downloadUrl?: string) => void;
   addCaptured: (image: ScanImage) => void;
   setGeneratedModel: (url?: string, name?: string) => void;
-  setGeneratedExport: (stlUrl?: string, providerKind?: 'ai' | 'procedural_fallback') => void;
+  setGeneratedExport: (stlUrl?: string, providerKind?: string) => void;
+  initializeModelHistory: (revision: ModelRevision) => void;
+  applyModelRevision: (revision: ModelRevision) => void;
+  undoModelEdit: () => void;
+  redoModelEdit: () => void;
+  resetModelEdits: () => void;
   clear: () => void;
 
   // Compatibility with the larger existing app
@@ -129,6 +151,8 @@ const resetState = () => ({
   generatedProviderKind: undefined,
   modelUrl: undefined,
   downloadUrl: undefined,
+  modelHistory: [],
+  modelHistoryIndex: -1,
   captureMode: 'single' as CaptureMode,
   burstUris: [],
   jobId: undefined,
@@ -161,12 +185,32 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => ({
   authToken: undefined,
   currentUser: undefined,
 
-  setHeroUri: (heroUri) => set({ heroUri, generatedModelUrl: undefined, generatedModelName: undefined, generatedStlUrl: undefined, generatedProviderKind: undefined, modelDownloadUrl: undefined }),
+  setHeroUri: (heroUri) => set({ heroUri, generatedModelUrl: undefined, generatedModelName: undefined, generatedStlUrl: undefined, generatedProviderKind: undefined, modelDownloadUrl: undefined, modelHistory: [], modelHistoryIndex: -1 }),
   setCutoutUri: (cutoutUri) => set({ cutoutUri }),
   setTargetLabel: (targetLabel) => set({ targetLabel }),
   addCaptured: (image) => set((state) => ({ captured: [...state.captured, image] })),
   setGeneratedModel: (generatedModelUrl, generatedModelName) => set({ generatedModelUrl, generatedModelName, modelUrl: generatedModelUrl }),
   setGeneratedExport: (generatedStlUrl, generatedProviderKind) => set({ generatedStlUrl, generatedProviderKind }),
+  initializeModelHistory: (revision) => set({ modelHistory: [revision], modelHistoryIndex: 0 }),
+  applyModelRevision: (revision) => set((state) => {
+    const next = appendRevision(state.modelHistory, state.modelHistoryIndex, revision);
+    return { modelHistory: next.history, modelHistoryIndex: next.index, generatedModelUrl: revision.url, generatedModelName: revision.name, generatedStlUrl: revision.stlUrl, generatedProviderKind: revision.providerKind, modelDownloadUrl: revision.url, modelUrl: revision.url };
+  }),
+  undoModelEdit: () => set((state) => {
+    const next = undoRevision(state.modelHistory, state.modelHistoryIndex);
+    const revision = currentRevision(next);
+    return revision ? { modelHistoryIndex: next.index, generatedModelUrl: revision.url, generatedModelName: revision.name, generatedStlUrl: revision.stlUrl, generatedProviderKind: revision.providerKind, modelDownloadUrl: revision.url, modelUrl: revision.url } : {};
+  }),
+  redoModelEdit: () => set((state) => {
+    const next = redoRevision(state.modelHistory, state.modelHistoryIndex);
+    const revision = currentRevision(next);
+    return revision ? { modelHistoryIndex: next.index, generatedModelUrl: revision.url, generatedModelName: revision.name, generatedStlUrl: revision.stlUrl, generatedProviderKind: revision.providerKind, modelDownloadUrl: revision.url, modelUrl: revision.url } : {};
+  }),
+  resetModelEdits: () => set((state) => {
+    const next = resetRevisions(state.modelHistory);
+    const revision = currentRevision(next);
+    return revision ? { modelHistoryIndex: next.index, generatedModelUrl: revision.url, generatedModelName: revision.name, generatedStlUrl: revision.stlUrl, generatedProviderKind: revision.providerKind, modelDownloadUrl: revision.url, modelUrl: revision.url } : {};
+  }),
   setModelLinks: (modelUrl, downloadUrl) => set({ modelUrl, downloadUrl, generatedModelUrl: modelUrl }),
   clear: () => set(resetState()),
 
@@ -205,5 +249,7 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => ({
     generatedStlUrl: state.generatedStlUrl,
     generatedProviderKind: state.generatedProviderKind,
     modelDownloadUrl: state.modelDownloadUrl,
+    modelHistory: state.modelHistory,
+    modelHistoryIndex: state.modelHistoryIndex,
   }),
 }));
