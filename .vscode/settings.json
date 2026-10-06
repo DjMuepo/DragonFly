@@ -1,0 +1,4 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/eye-platform-alpha-geometry-backend/geometry-backend/.venv312/bin/python",
+  "python.analysis.useNearestConfiguration": true
+}

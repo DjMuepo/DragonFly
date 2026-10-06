@@ -33,6 +33,7 @@ class ReconstructionRequest:
     confidence: float
     image_path: Path | None = None
     prompt: str | None = None
+    quality_mode: str = "STANDARD"
 
 
 @dataclass(frozen=True)

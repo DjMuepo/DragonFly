@@ -12,6 +12,9 @@ export default function ResultScreen() {
   const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
   const generatedStlUrl = useSnapStore((s) => s.generatedStlUrl);
   const generatedProviderKind = useSnapStore((s) => s.generatedProviderKind);
+  const reconstructionQuality = useSnapStore((s) => s.reconstructionQuality);
+  const preprocessingReport = useSnapStore((s) => s.preprocessingReport);
+  const hiddenSurfaceUncertainty = useSnapStore((s) => s.hiddenSurfaceUncertainty);
   const modelDownloadUrl = useSnapStore((s) => s.modelDownloadUrl);
   const clear = useSnapStore((s) => s.clear);
   const imageUri = cutoutUri || heroUri;
@@ -45,6 +48,9 @@ export default function ResultScreen() {
         <Text style={styles.cardText}>{hasModel ? 'Your 3D model is ready to view and export.' : 'Generation has not completed. Retry to create a model.'}</Text>
         <Text style={styles.cardSubtext}>Model: {generatedModelName || 'not generated yet'}</Text>
         {hasModel ? <Text style={styles.cardSubtext}>{generatedProviderKind === 'ai' ? 'AI reconstruction' : 'Procedural fallback (not AI)'}</Text> : null}
+        {hasModel && reconstructionQuality ? <Text style={styles.cardSubtext}>Quality: {reconstructionQuality.replace('_', ' ')}</Text> : null}
+        {hasModel && preprocessingReport ? <Text style={styles.cardSubtext}>{preprocessingReport.foreground_segmenter} segmentation · object crop {preprocessingReport.object_crop_applied ? 'applied' : 'not applied'}</Text> : null}
+        {hasModel && hiddenSurfaceUncertainty ? <Text style={styles.cardSubtext}>{hiddenSurfaceUncertainty}</Text> : null}
       </View>
       {message ? <Text style={styles.message}>{message}</Text> : null}
       <View style={styles.actions}>

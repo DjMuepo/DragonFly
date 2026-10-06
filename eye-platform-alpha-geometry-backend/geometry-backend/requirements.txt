@@ -5,3 +5,5 @@ pydantic==2.10.4
 trimesh==4.5.3
 numpy==2.2.1
 pillow==11.0.0
+rembg[cpu]==2.0.69
+manifold3d==3.5.4

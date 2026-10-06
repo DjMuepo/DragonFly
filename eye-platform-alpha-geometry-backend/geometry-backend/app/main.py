@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import time
 import uuid
 import os
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -18,6 +19,7 @@ from PIL import Image, UnidentifiedImageError
 from .mesh_factory import infer_preset
 from .mesh_factory import export_trimesh
 from .mesh_editing import DeterministicMeshEditor, FeatureEditingProvider, UnsupportedEditError, validate_for_print
+from .image_preprocessing import prepare_reconstruction_image
 from .physical_units import ScaleMetadata, calibrate_mesh, export_manufacturing_mesh, load_scale_metadata, mesh_from_glb_for_edit, save_scale_metadata
 from .providers import ProceduralProvider, ReconstructionRequest, reconstruct, select_provider
 
@@ -45,6 +47,7 @@ class GeometryRequest(BaseModel):
     confidence: float = Field(default=0.7, ge=0, le=1)
     mode: str = Field(default="approximate")
     prompt: Optional[str] = None
+    quality_mode: Literal["FAST", "STANDARD", "HIGH_QUALITY"] = "STANDARD"
 
 class EditRequest(BaseModel):
     label: str = Field(default="Object")
@@ -76,6 +79,9 @@ class GeometryResponse(BaseModel):
     validation: Optional[dict] = None
     scale_status: str = "unknown"
     calibration: Optional[dict] = None
+    quality_mode: str = "STANDARD"
+    preprocessing: Optional[dict] = None
+    hidden_surface_uncertainty: Optional[str] = None
 
 
 class GeometryJobResponse(BaseModel):
@@ -84,6 +90,10 @@ class GeometryJobResponse(BaseModel):
     progress: int
     provider: str
     provider_kind: str
+    quality_mode: str = "STANDARD"
+    stage: Optional[str] = None
+    stage_detail: Optional[str] = None
+    preprocessing: Optional[dict] = None
     error: Optional[str] = None
     result: Optional[GeometryResponse] = None
 
@@ -134,15 +144,22 @@ def _model_response(base_url: str, job_id: str, label: str, generated, edit_meta
     return payload
 
 
-def _run_generation(job_id: str, base_url: str, label: str, confidence: float, image_path: Path | None, prompt: str | None) -> None:
+def _run_generation(job_id: str, base_url: str, label: str, confidence: float, image_path: Path | None, prompt: str | None, quality_mode: str) -> None:
     job = JOBS[job_id]
-    job.update(status="processing", progress=15)
+    job.update(status="processing", progress=5, stage="validating", stage_detail="Checking photo dimensions and image quality.")
+    prepared_path: Path | None = None
     try:
-        request = ReconstructionRequest(label=label, confidence=confidence, image_path=image_path, prompt=prompt)
+        preprocessing: dict | None = None
+        if image_path is not None:
+            job.update(progress=12, stage="segmenting", stage_detail="Removing the background and cropping the object.")
+            prepared_path, prep_report = prepare_reconstruction_image(image_path, UPLOADS_DIR, quality_mode)
+            preprocessing = prep_report.as_dict()
+            job.update(progress=25, stage="preprocessed", stage_detail="Photo normalized; submitting reconstruction.", preprocessing=preprocessing)
+        request = ReconstructionRequest(label=label, confidence=confidence, image_path=prepared_path, prompt=prompt, quality_mode=quality_mode)
         if image_path is None:
             generated = ProceduralProvider().generate(request, MODELS_DIR)
         else:
-            job.update(progress=45)
+            job.update(progress=35, stage="reconstructing", stage_detail="Generating mesh with the selected AI provider.")
             generated = reconstruct(
                 request,
                 MODELS_DIR,
@@ -150,19 +167,29 @@ def _run_generation(job_id: str, base_url: str, label: str, confidence: float, i
             )
         save_scale_metadata(generated.model_path, ScaleMetadata(status="unknown"))
         generated_mesh = __import__("trimesh").load(generated.model_path, force="mesh")
-        generation_metadata = {"validation": validate_for_print(generated_mesh, "unknown")}
+        generation_metadata = {
+            "validation": validate_for_print(generated_mesh, "unknown"),
+            "quality_mode": quality_mode,
+            "preprocessing": preprocessing,
+            "hidden_surface_uncertainty": "Single-photo geometry behind or occluded from the camera is inferred, not measured.",
+        }
         job.update(
             status="done",
             progress=100,
+            stage="complete",
+            stage_detail="Model ready.",
             provider=generated.engine,
             provider_kind=generated.provider_kind,
             result=_model_response(base_url, job_id, label, generated, generation_metadata).model_dump(),
         )
     except Exception as error:
-        job.update(status="error", progress=100, error=str(error))
+        job.update(status="error", progress=100, stage="error", stage_detail=str(error), error=str(error))
+    finally:
+        if prepared_path:
+            prepared_path.unlink(missing_ok=True)
 
 
-def _create_geometry_job(request: Request, background: BackgroundTasks, label: str, confidence: float, image_path: Path | None = None, prompt: str | None = None) -> GeometryJobResponse:
+def _create_geometry_job(request: Request, background: BackgroundTasks, label: str, confidence: float, image_path: Path | None = None, prompt: str | None = None, quality_mode: str = "STANDARD") -> GeometryJobResponse:
     job_id = uuid.uuid4().hex[:12]
     provider = ProceduralProvider() if image_path is None else select_provider()
     provider_kind = "procedural_fallback" if provider.name == "procedural-parametric" else "ai"
@@ -172,10 +199,14 @@ def _create_geometry_job(request: Request, background: BackgroundTasks, label: s
         "progress": 0,
         "provider": provider.name,
         "provider_kind": provider_kind,
+        "quality_mode": quality_mode,
+        "stage": "queued",
+        "stage_detail": "Waiting for reconstruction worker.",
+        "preprocessing": None,
         "error": None,
         "result": None,
     }
-    background.add_task(_run_generation, job_id, public_base(request), label, confidence, image_path, prompt)
+    background.add_task(_run_generation, job_id, public_base(request), label, confidence, image_path, prompt, quality_mode)
     return GeometryJobResponse(**JOBS[job_id])
 
 
@@ -198,13 +229,28 @@ def _run_edit(job_id: str, base_url: str, label: str, model_url: str | None, pro
     try:
         source_path = _source_model_path(model_url)
         scale_metadata = load_scale_metadata(source_path)
+        feature_path = source_path.with_suffix(".features.json")
+        try:
+            feature_metadata = json.loads(feature_path.read_text(encoding="utf-8")) if feature_path.is_file() else {}
+        except (OSError, json.JSONDecodeError):
+            feature_metadata = {}
         source = mesh_from_glb_for_edit(source_path, scale_metadata)
-        edited = DeterministicMeshEditor().apply(source, prompt, scale_status=scale_metadata.status)
+        edited = DeterministicMeshEditor().apply(source, prompt, scale_status=scale_metadata.status, feature_metadata=feature_metadata)
         if scale_metadata.status == "calibrated":
             model_name, model_path = export_manufacturing_mesh(edited.mesh, f"{label}-edited", MODELS_DIR, scale_metadata, center=False)
         else:
             model_name, model_path = export_trimesh(edited.mesh, f"{label}-edited", MODELS_DIR, center=False)
             save_scale_metadata(model_path, scale_metadata)
+        next_features = dict(feature_metadata) if edited.change_kind == "visual_only" else {}
+        if edited.feature_metadata.get("remove_editor_base"):
+            next_features.pop("editor_base_thickness_mm", None)
+        else:
+            next_features.update(edited.feature_metadata)
+        output_feature_path = model_path.with_suffix(".features.json")
+        if next_features:
+            output_feature_path.write_text(json.dumps(next_features, separators=(",", ":")), encoding="utf-8")
+        else:
+            output_feature_path.unlink(missing_ok=True)
         generated = ReconstructionOutput(
             engine="deterministic-mesh-editor",
             model_name=model_name,
@@ -298,10 +344,10 @@ async def classify_image(label: str = Form(default="Object"), image: Optional[Up
 @app.post("/v1/geometry/generate", response_model=GeometryJobResponse, status_code=202)
 def generate_geometry(payload: GeometryRequest, request: Request, background: BackgroundTasks):
     label = classify_label(payload.label)
-    return _create_geometry_job(request, background, label, payload.confidence, prompt=payload.prompt)
+    return _create_geometry_job(request, background, label, payload.confidence, prompt=payload.prompt, quality_mode=payload.quality_mode)
 
 @app.post("/v1/geometry/generate-from-image", response_model=GeometryJobResponse, status_code=202)
-async def generate_geometry_from_image(request: Request, background: BackgroundTasks, label: str = Form(default="Object"), confidence: float = Form(default=0.7), image: Optional[UploadFile] = File(default=None)):
+async def generate_geometry_from_image(request: Request, background: BackgroundTasks, label: str = Form(default="Object"), confidence: float = Form(default=0.7), quality_mode: Literal["FAST", "STANDARD", "HIGH_QUALITY"] = Form(default="STANDARD"), image: Optional[UploadFile] = File(default=None)):
     if image is None:
         raise HTTPException(status_code=400, detail="An image is required for AI reconstruction")
     content = await image.read(15 * 1024 * 1024 + 1)
@@ -316,7 +362,7 @@ async def generate_geometry_from_image(request: Request, background: BackgroundT
     image_path = UPLOADS_DIR / saved_name
     image_path.write_bytes(content)
     detected = classify_label(label, image_path.name if image_path else None)
-    return _create_geometry_job(request, background, detected, confidence, image_path=image_path)
+    return _create_geometry_job(request, background, detected, confidence, image_path=image_path, quality_mode=quality_mode)
 
 @app.post("/v1/geometry/edit", response_model=GeometryJobResponse, status_code=202)
 def edit_geometry(payload: EditRequest, request: Request, background: BackgroundTasks):
@@ -357,7 +403,7 @@ def edit_capabilities():
     return {
         "deterministic": ["scale", "dimensions", "rotation", "position", "material color"],
         "features": list(FeatureEditingProvider.supported_features),
-        "unsupported": ["holes", "handles", "freeform additions", "semantic part removal"],
+        "unsupported": ["fillets", "chamfers", "threads", "freeform additions", "semantic part removal"],
     }
 
 @app.post("/v1/geometry/prepare-print")

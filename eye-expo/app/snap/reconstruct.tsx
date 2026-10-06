@@ -12,6 +12,7 @@ export default function ReconstructScreen() {
   const clear = useSnapStore((s) => s.clear);
   const setGeneratedModel = useSnapStore((s) => s.setGeneratedModel);
   const setGeneratedExport = useSnapStore((s) => s.setGeneratedExport);
+  const setReconstructionDetails = useSnapStore((s) => s.setReconstructionDetails);
   const initializeModelHistory = useSnapStore((s) => s.initializeModelHistory);
   const setJobResultLinks = useSnapStore((s) => s.setJobResultLinks);
   const imageUri = cutoutUri || heroUri;
@@ -21,6 +22,10 @@ export default function ReconstructScreen() {
   const [modelName, setModelName] = useState<string | null>(null);
   const [engine, setEngine] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const [qualityMode, setQualityMode] = useState<'FAST' | 'STANDARD' | 'HIGH_QUALITY'>('STANDARD');
+  const [activeQualityMode, setActiveQualityMode] = useState<'FAST' | 'STANDARD' | 'HIGH_QUALITY'>('STANDARD');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [stageDetail, setStageDetail] = useState('');
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -38,17 +43,21 @@ export default function ReconstructScreen() {
         setError(null);
         setProgress(0);
         setEngine(null);
+        setStageDetail('');
         setGeneratedModel(undefined, undefined);
         setGeneratedExport(undefined, undefined);
+        setReconstructionDetails(undefined, undefined, undefined);
         setJobResultLinks(undefined, undefined);
         const result = await generateGeometryFromImage({
           imageUri,
           label: targetLabel || 'Object',
           confidence: 0.7,
+          qualityMode: activeQualityMode,
           onProgress: (job) => {
             if (alive) {
               setProgress(job.progress);
               setEngine(`${job.provider} (${job.provider_kind})`);
+              setStageDetail(job.stage_detail || '');
             }
           },
         });
@@ -56,6 +65,7 @@ export default function ReconstructScreen() {
 
         setGeneratedModel(result.model_url, result.model_name);
         setGeneratedExport(result.stl_download_url, result.provider_kind);
+        setReconstructionDetails(result.quality_mode, result.preprocessing, result.hidden_surface_uncertainty);
         initializeModelHistory({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, summary: 'Original reconstructed model', scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
         setJobResultLinks(result.model_url, result.download_url);
         setModelName(result.model_name);
@@ -65,6 +75,7 @@ export default function ReconstructScreen() {
         if (!alive) return;
         setGeneratedModel(undefined, undefined);
         setGeneratedExport(undefined, undefined);
+        setReconstructionDetails(undefined, undefined, undefined);
         setJobResultLinks(undefined, undefined);
         setError(err?.message || '3D generation failed. Check your connection and try again.');
         setStage('error');
@@ -76,7 +87,7 @@ export default function ReconstructScreen() {
     return () => {
       alive = false;
     };
-  }, [attempt, imageUri, targetLabel, setGeneratedModel, setGeneratedExport, initializeModelHistory, setJobResultLinks]);
+  }, [attempt, imageUri, targetLabel, activeQualityMode, setGeneratedModel, setGeneratedExport, setReconstructionDetails, initializeModelHistory, setJobResultLinks]);
 
   if (!imageUri) {
     return (
@@ -92,10 +103,31 @@ export default function ReconstructScreen() {
       <Image source={{ uri: imageUri }} style={styles.image} />
       <Text style={styles.objectLabel}>Object: {targetLabel || 'Unknown object'}</Text>
 
+      <Pressable style={styles.advancedToggle} onPress={() => setShowAdvanced((value) => !value)}>
+        <Text style={styles.advancedText}>{showAdvanced ? 'Hide' : 'Advanced'} reconstruction quality</Text>
+      </Pressable>
+      {showAdvanced ? (
+        <>
+          <View style={styles.qualityOptions}>
+            {(['FAST', 'STANDARD', 'HIGH_QUALITY'] as const).map((mode) => (
+              <Pressable key={mode} style={[styles.qualityButton, qualityMode === mode && styles.qualitySelected]} onPress={() => setQualityMode(mode)}>
+                <Text style={styles.qualityText}>{mode === 'HIGH_QUALITY' ? 'HIGH QUALITY' : mode}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {stage !== 'building' ? (
+            <Pressable style={styles.qualityRegenerate} onPress={() => { setActiveQualityMode(qualityMode); setAttempt((value) => value + 1); }}>
+              <Text style={styles.qualityRegenerateText}>Regenerate at this quality</Text>
+            </Pressable>
+          ) : null}
+        </>
+      ) : null}
+
       {stage === 'building' ? (
         <>
           <ActivityIndicator size="large" />
-          <Text style={styles.status}>{engine ? `Generating with ${engine}: ${progress}%` : 'Submitting image reconstruction job...'}</Text>
+          <Text style={styles.status}>{engine ? `Generating with ${engine}: ${progress}%` : 'Preparing photo...'}</Text>
+          {stageDetail ? <Text style={styles.note}>{stageDetail}</Text> : null}
           <Text style={styles.note}>This can take a moment. The model actions appear only after the backend returns a valid URL.</Text>
         </>
       ) : stage === 'error' ? (
@@ -151,6 +183,14 @@ const styles = StyleSheet.create({
   image: { width: '70%', maxWidth: 240, aspectRatio: 1, marginBottom: 18, resizeMode: 'contain', backgroundColor: '#f7f7f7', borderRadius: 8 },
   title: { fontSize: 28, fontWeight: '800', marginBottom: 16, color: '#111' },
   objectLabel: { fontSize: 20, fontWeight: '700', marginBottom: 16, textAlign: 'center', color: '#111' },
+  advancedToggle: { width: '100%', maxWidth: 300, minHeight: 42, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+  advancedText: { color: '#5b5f97', fontWeight: '800' },
+  qualityOptions: { width: '100%', maxWidth: 340, flexDirection: 'row', gap: 6, marginBottom: 10 },
+  qualityButton: { flex: 1, paddingVertical: 10, paddingHorizontal: 4, alignItems: 'center', borderRadius: 8, backgroundColor: '#eef0f6' },
+  qualitySelected: { backgroundColor: '#b8f1f2', borderWidth: 1, borderColor: '#18a8b2' },
+  qualityText: { color: '#202436', fontSize: 11, fontWeight: '900' },
+  qualityRegenerate: { width: '100%', maxWidth: 340, minHeight: 42, justifyContent: 'center', alignItems: 'center', marginBottom: 10, borderRadius: 8, backgroundColor: '#253b47' },
+  qualityRegenerateText: { color: '#fff', fontWeight: '800' },
   status: { marginTop: 12, color: '#444', fontSize: 16, textAlign: 'center' },
   note: { marginTop: 18, textAlign: 'center', color: '#666', maxWidth: 320 },
   readyCard: { width: '100%', maxWidth: 340, backgroundColor: '#f5f7fb', borderRadius: 16, padding: 18, marginTop: 10, marginBottom: 18 },

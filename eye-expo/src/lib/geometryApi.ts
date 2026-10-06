@@ -27,6 +27,18 @@ export type GeometryResponse = {
   };
   scale_status: 'unknown' | 'calibrated';
   calibration?: { axis: 'width' | 'depth' | 'height'; value_mm: number; source_measurement: string };
+  quality_mode?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY';
+  preprocessing?: {
+    quality_mode: 'FAST' | 'STANDARD' | 'HIGH_QUALITY';
+    source_dimensions: [number, number];
+    output_dimensions: [number, number];
+    foreground_segmenter: string;
+    object_crop_applied: boolean;
+    resized: boolean;
+    source_images: number;
+    hidden_surfaces: string;
+  };
+  hidden_surface_uncertainty?: string;
 };
 
 export type GeometryJobResponse = {
@@ -35,6 +47,10 @@ export type GeometryJobResponse = {
   progress: number;
   provider: string;
   provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only' | 'calibration';
+  quality_mode?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY';
+  stage?: string;
+  stage_detail?: string;
+  preprocessing?: GeometryResponse['preprocessing'];
   error?: string;
   result?: GeometryResponse;
 };
@@ -105,12 +121,13 @@ async function waitForGeometryJob(job: GeometryJobResponse, onProgress?: (job: G
   throw new Error('Geometry generation timed out before the backend returned a model.');
 }
 
-export async function generateGeometryFromImage(params: { imageUri?: string; label?: string; confidence?: number; onProgress?: (job: GeometryJobResponse) => void }): Promise<GeometryResponse> {
+export async function generateGeometryFromImage(params: { imageUri?: string; label?: string; confidence?: number; qualityMode?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY'; onProgress?: (job: GeometryJobResponse) => void }): Promise<GeometryResponse> {
   const label = params.label || 'Object';
   if (!params.imageUri) throw new Error('Choose or capture a photo before generating a model.');
   const form = new FormData();
   form.append('label', label);
   form.append('confidence', String(params.confidence ?? 0.7));
+  form.append('quality_mode', params.qualityMode ?? 'STANDARD');
   if (typeof window !== 'undefined') {
     const imageRes = await fetch(params.imageUri);
     if (!imageRes.ok) throw new Error('Could not read the selected photo. Select it again and retry.');
