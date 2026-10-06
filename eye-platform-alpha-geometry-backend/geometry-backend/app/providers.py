@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import json
+import logging
 import mimetypes
 import os
 import sys
@@ -13,6 +15,27 @@ from pathlib import Path
 from typing import Protocol
 
 from .mesh_factory import export_glb, export_trimesh, infer_preset
+from .mesh_editing import validate_for_print
+
+
+LOGGER = logging.getLogger("dragonfly.reconstruction")
+
+
+def _memory_rss_mib() -> float | None:
+    try:
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines():
+            if line.startswith("VmRSS:"):
+                return round(int(line.split()[1]) / 1024, 1)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _log_provider_event(request: ReconstructionRequest, stage: str, **details) -> None:
+    LOGGER.info(
+        "reconstruction_event %s",
+        json.dumps({"job_id": request.job_id, "stage": stage, "provider": "replicate-remote-gpu", "memory_rss_mib": _memory_rss_mib(), **details}, separators=(",", ":")),
+    )
 
 
 def _load_backend_env() -> None:
@@ -34,6 +57,7 @@ class ReconstructionRequest:
     image_path: Path | None = None
     prompt: str | None = None
     quality_mode: str = "STANDARD"
+    job_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +70,7 @@ class ReconstructionOutput:
     detected_family: str = "object"
     notes: str = ""
     provider_kind: str = "procedural_fallback"
+    validation: dict | None = None
 
 
 class ReconstructionProvider(Protocol):
@@ -233,6 +258,7 @@ class ReplicateGPUProvider:
 
         image_data_url = self._encode_image(request.image_path)
         prediction_path, prediction_body, model_name = self._prediction_request(model_ref, image_data_url)
+        _log_provider_event(request, "replicate_request_started", input_bytes=request.image_path.stat().st_size, input_mime=mimetypes.guess_type(str(request.image_path))[0] or "image/jpeg", model=model_name)
         prediction = self._request(
             "POST",
             prediction_path,
@@ -240,30 +266,41 @@ class ReplicateGPUProvider:
             prediction_body,
         )
         prediction_url = prediction["urls"]["get"]
+        prediction_id = str(prediction.get("id", "unknown"))
+        _log_provider_event(request, "replicate_prediction_created", prediction_id=prediction_id, prediction_status=prediction.get("status"))
 
         deadline = time.time() + 600
+        last_status = None
         while prediction.get("status") not in {"succeeded", "failed", "canceled"}:
             if time.time() > deadline:
                 raise RuntimeError("Replicate prediction timed out after 10 minutes")
             time.sleep(3)
             prediction = self._request("GET", prediction_url, token, None, absolute=True)
+            if prediction.get("status") != last_status:
+                last_status = prediction.get("status")
+                _log_provider_event(request, "replicate_prediction_status", prediction_id=prediction_id, prediction_status=last_status)
 
         if prediction.get("status") != "succeeded":
             raise RuntimeError(f"Replicate prediction failed: {prediction.get('error') or prediction.get('status')}")
 
         mesh_url = self._find_mesh_url(prediction.get("output"))
         if not mesh_url:
+            _log_provider_event(request, "replicate_output_parse_failed", prediction_id=prediction_id, output_type=type(prediction.get("output")).__name__)
             raise RuntimeError("Replicate prediction succeeded but returned no mesh output")
-
-        import trimesh
 
         parsed_name = Path(urllib.parse.urlparse(mesh_url).path).name or "replicate-mesh.glb"
         local_path = models_dir / f"_remote_{parsed_name}"
+        _log_provider_event(request, "replicate_output_parsed", prediction_id=prediction_id, output_extension=Path(parsed_name).suffix.lower(), output_host=urllib.parse.urlparse(mesh_url).hostname)
         urllib.request.urlretrieve(mesh_url, local_path)
+        _log_provider_event(request, "replicate_output_downloaded", prediction_id=prediction_id, downloaded_bytes=local_path.stat().st_size)
+        import trimesh
+
         mesh = trimesh.load(local_path, force="mesh")
         local_path.unlink(missing_ok=True)
 
         model_name, model_path = export_trimesh(mesh, request.label, models_dir)
+        validation = validate_for_print(mesh, "unknown")
+        _log_provider_event(request, "mesh_exported", prediction_id=prediction_id, model_name=model_name, glb_bytes=model_path.stat().st_size, stl_bytes=model_path.with_suffix(".stl").stat().st_size, watertight=validation["watertight"], status="ok")
         return ReconstructionOutput(
             engine=self.name,
             model_name=model_name,
@@ -273,6 +310,7 @@ class ReplicateGPUProvider:
             detected_family=infer_preset(request.label),
             notes=f"Remote GPU reconstruction completed via Replicate ({model_name}).",
             provider_kind="ai",
+            validation=validation,
         )
 
     @staticmethod

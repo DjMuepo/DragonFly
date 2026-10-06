@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, Image, Pressable, ActivityIndicator, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSnapStore } from '../../src/lib/useSnapStore';
 import { generateGeometryFromImage } from '../../src/lib/geometryApi';
 
@@ -27,6 +27,7 @@ export default function ReconstructScreen() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [stageDetail, setStageDetail] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const activeJobId = useRef<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -44,6 +45,7 @@ export default function ReconstructScreen() {
         setProgress(0);
         setEngine(null);
         setStageDetail('');
+        activeJobId.current = null;
         setGeneratedModel(undefined, undefined);
         setGeneratedExport(undefined, undefined);
         setReconstructionDetails(undefined, undefined, undefined);
@@ -54,6 +56,7 @@ export default function ReconstructScreen() {
           confidence: 0.7,
           qualityMode: activeQualityMode,
           onProgress: (job) => {
+            activeJobId.current = job.job_id;
             if (alive) {
               setProgress(job.progress);
               setEngine(`${job.provider} (${job.provider_kind})`);
@@ -77,7 +80,8 @@ export default function ReconstructScreen() {
         setGeneratedExport(undefined, undefined);
         setReconstructionDetails(undefined, undefined, undefined);
         setJobResultLinks(undefined, undefined);
-        setError(err?.message || '3D generation failed. Check your connection and try again.');
+        const message = err?.message || '3D generation failed. Check your connection and try again.';
+        setError(activeJobId.current && !message.includes(activeJobId.current) ? `Generation failed — Job DF-${activeJobId.current}: ${message}` : message);
         setStage('error');
       }
     }

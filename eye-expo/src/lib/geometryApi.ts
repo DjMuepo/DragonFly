@@ -112,7 +112,7 @@ async function waitForGeometryJob(job: GeometryJobResponse, onProgress?: (job: G
       }
       return normalize(current.result);
     }
-    if (current.status === 'error') throw new Error(current.error || `${current.provider} reconstruction failed`);
+    if (current.status === 'error') throw new Error(`Generation failed — Job DF-${current.job_id}: ${current.error || `${current.provider} reconstruction failed`}`);
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const response = await timedFetch(`${getGeometryApiBase()}/v1/geometry/jobs/${encodeURIComponent(current.job_id)}`);
     if (!response.ok) throw new Error(`Geometry job lookup failed (${response.status})`);

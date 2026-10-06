@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 import os
+import threading
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, Literal, Optional
@@ -41,6 +43,25 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 JOBS: Dict[str, dict] = {}
+LOGGER = logging.getLogger("dragonfly.reconstruction")
+PREPROCESSING_LOCK = threading.Lock()
+
+
+def _memory_rss_mib() -> float | None:
+    try:
+        for line in Path("/proc/self/status").read_text(encoding="ascii").splitlines():
+            if line.startswith("VmRSS:"):
+                return round(int(line.split()[1]) / 1024, 1)
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _log_reconstruction_event(job_id: str, stage: str, **details) -> None:
+    LOGGER.info(
+        "reconstruction_event %s",
+        json.dumps({"job_id": job_id, "stage": stage, "memory_rss_mib": _memory_rss_mib(), **details}, separators=(",", ":")),
+    )
 
 class GeometryRequest(BaseModel):
     label: str = Field(default="Object")
@@ -146,33 +167,53 @@ def _model_response(base_url: str, job_id: str, label: str, generated, edit_meta
 
 def _run_generation(job_id: str, base_url: str, label: str, confidence: float, image_path: Path | None, prompt: str | None, quality_mode: str) -> None:
     job = JOBS[job_id]
+    photo_reconstruction = image_path is not None
     job.update(status="processing", progress=5, stage="validating", stage_detail="Checking photo dimensions and image quality.")
     prepared_path: Path | None = None
+    active_stage = "validating"
+    provider_name = job.get("provider", "procedural-parametric" if image_path is None else "replicate-remote-gpu")
     try:
         preprocessing: dict | None = None
         if image_path is not None:
-            job.update(progress=12, stage="segmenting", stage_detail="Removing the background and cropping the object.")
-            prepared_path, prep_report = prepare_reconstruction_image(image_path, UPLOADS_DIR, quality_mode)
+            with Image.open(image_path) as uploaded:
+                input_dimensions = uploaded.size
+                input_format = uploaded.format
+            active_stage = "preprocessing_wait"
+            _log_reconstruction_event(job_id, active_stage, provider=provider_name, input_dimensions=input_dimensions, input_format=input_format, input_bytes=image_path.stat().st_size)
+            job.update(progress=12, stage="preprocessing", stage_detail="Resizing and normalizing photo for the memory-limited reconstruction service.")
+            active_stage = "preprocessing"
+            with PREPROCESSING_LOCK:
+                prepared_path, prep_report = prepare_reconstruction_image(image_path, UPLOADS_DIR, quality_mode, job_id)
             preprocessing = prep_report.as_dict()
+            image_path.unlink(missing_ok=True)
+            _log_reconstruction_event(job_id, "preprocessing_complete", provider=provider_name, input_dimensions=input_dimensions, processed_dimensions=prep_report.output_dimensions, segmenter=prep_report.foreground_segmenter, crop_applied=prep_report.object_crop_applied, processed_bytes=prepared_path.stat().st_size)
             job.update(progress=25, stage="preprocessed", stage_detail="Photo normalized; submitting reconstruction.", preprocessing=preprocessing)
-        request = ReconstructionRequest(label=label, confidence=confidence, image_path=prepared_path, prompt=prompt, quality_mode=quality_mode)
+        request = ReconstructionRequest(label=label, confidence=confidence, image_path=prepared_path, prompt=prompt, quality_mode=quality_mode, job_id=job_id)
         if image_path is None:
             generated = ProceduralProvider().generate(request, MODELS_DIR)
         else:
+            active_stage = "replicate_reconstruction"
+            _log_reconstruction_event(job_id, "provider_request", provider=provider_name, processed_dimensions=prep_report.output_dimensions, provider_kind="ai")
             job.update(progress=35, stage="reconstructing", stage_detail="Generating mesh with the selected AI provider.")
             generated = reconstruct(
                 request,
                 MODELS_DIR,
                 allow_procedural_fallback=os.environ.get("EYE_ALLOW_PROCEDURAL_FALLBACK") == "1",
             )
+        active_stage = "result_validation"
         save_scale_metadata(generated.model_path, ScaleMetadata(status="unknown"))
-        generated_mesh = __import__("trimesh").load(generated.model_path, force="mesh")
         generation_metadata = {
-            "validation": validate_for_print(generated_mesh, "unknown"),
             "quality_mode": quality_mode,
             "preprocessing": preprocessing,
             "hidden_surface_uncertainty": "Single-photo geometry behind or occluded from the camera is inferred, not measured.",
         }
+        if generated.validation is not None:
+            generation_metadata["validation"] = generated.validation
+        elif not photo_reconstruction:
+            generated_mesh = __import__("trimesh").load(generated.model_path, force="mesh")
+            generation_metadata["validation"] = validate_for_print(generated_mesh, "unknown")
+            del generated_mesh
+        _log_reconstruction_event(job_id, "model_stored", provider=generated.engine, provider_kind=generated.provider_kind, model_name=generated.model_name, model_bytes=generated.model_path.stat().st_size, model_url=f"{base_url}/v1/geometry/models/{generated.model_name}", status="ok")
         job.update(
             status="done",
             progress=100,
@@ -183,10 +224,13 @@ def _run_generation(job_id: str, base_url: str, label: str, confidence: float, i
             result=_model_response(base_url, job_id, label, generated, generation_metadata).model_dump(),
         )
     except Exception as error:
+        _log_reconstruction_event(job_id, active_stage, provider=provider_name, status="error", error_type=type(error).__name__, error=str(error))
         job.update(status="error", progress=100, stage="error", stage_detail=str(error), error=str(error))
     finally:
         if prepared_path:
             prepared_path.unlink(missing_ok=True)
+        if image_path:
+            image_path.unlink(missing_ok=True)
 
 
 def _create_geometry_job(request: Request, background: BackgroundTasks, label: str, confidence: float, image_path: Path | None = None, prompt: str | None = None, quality_mode: str = "STANDARD") -> GeometryJobResponse:
