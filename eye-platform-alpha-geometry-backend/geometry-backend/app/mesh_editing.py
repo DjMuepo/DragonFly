@@ -86,7 +86,7 @@ class FeatureEditingProvider:
             raise UnsupportedEditError("Hollowing did not produce a watertight shell.")
         return result
 
-    def apply(self, mesh: trimesh.Trimesh, prompt: str, scale_status: str = "unknown", feature_metadata: dict | None = None) -> EditResult | None:
+    def apply(self, mesh: trimesh.Trimesh, prompt: str, scale_status: str = "unknown", feature_metadata: dict | None = None, base_restore_mesh: trimesh.Trimesh | None = None) -> EditResult | None:
         lowered = prompt.lower()
         feature_request = re.search(r"\b(add|remove|delete|cut|create)\b", lowered)
         advanced = re.search(r"\b(hole|through[- ]hole|hollow|wall thickness|walls|cut|trim|handle|fillet|round|chamfer|thread)\b", lowered)
@@ -152,14 +152,9 @@ class FeatureEditingProvider:
             if remove_base:
                 recorded_thickness = (feature_metadata or {}).get("editor_base_thickness_mm")
                 if recorded_thickness:
-                    z_min = float(mesh.bounds[0][2])
-                    overlap = float((feature_metadata or {}).get("editor_base_overlap_mm", 0))
-                    base_depth = float(recorded_thickness) - overlap
-                    cutter_depth = base_depth + 0.02
-                    cutter = trimesh.creation.box(extents=(float(mesh.extents[0]) * 2, float(mesh.extents[1]) * 2, cutter_depth))
-                    bounds_center = mesh.bounding_box.centroid
-                    cutter.apply_translation((float(bounds_center[0]), float(bounds_center[1]), z_min + base_depth - cutter_depth / 2))
-                    result = self._boolean(mesh, cutter, "difference")
+                    if base_restore_mesh is None:
+                        raise UnsupportedEditError("The original mesh revision for this fused base is unavailable; use Undo to restore it safely.")
+                    result = base_restore_mesh.copy()
                     return EditResult(result, "geometry", "Removed the recorded editor-added base.", ["remove base"], {"remove_editor_base": True})
                 raise UnsupportedEditError("No recorded editor-added base was found to remove. Use Undo if the base was added in this session.")
             if not mesh.is_watertight:
@@ -257,11 +252,11 @@ class DeterministicMeshEditor:
         self.features = FeatureEditingProvider()
         self.interpreter = EditIntentInterpreter()
 
-    def apply(self, mesh: trimesh.Trimesh, prompt: str, scale_status: str = "unknown", feature_metadata: dict | None = None) -> EditResult:
+    def apply(self, mesh: trimesh.Trimesh, prompt: str, scale_status: str = "unknown", feature_metadata: dict | None = None, base_restore_mesh: trimesh.Trimesh | None = None) -> EditResult:
         text = prompt.strip()
         if not text:
             raise UnsupportedEditError("Enter an editing instruction.")
-        feature_result = self.features.apply(mesh, text, scale_status=scale_status, feature_metadata=feature_metadata)
+        feature_result = self.features.apply(mesh, text, scale_status=scale_status, feature_metadata=feature_metadata, base_restore_mesh=base_restore_mesh)
         if feature_result:
             return feature_result
 

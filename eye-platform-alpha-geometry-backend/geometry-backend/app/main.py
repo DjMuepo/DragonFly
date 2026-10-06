@@ -18,7 +18,7 @@ from PIL import Image, UnidentifiedImageError
 
 from .mesh_factory import infer_preset
 from .mesh_factory import export_trimesh
-from .mesh_editing import DeterministicMeshEditor, FeatureEditingProvider, UnsupportedEditError, validate_for_print
+from .mesh_editing import DeterministicMeshEditor, EditResult, FeatureEditingProvider, UnsupportedEditError, validate_for_print
 from .image_preprocessing import prepare_reconstruction_image
 from .physical_units import ScaleMetadata, calibrate_mesh, export_manufacturing_mesh, load_scale_metadata, mesh_from_glb_for_edit, save_scale_metadata
 from .providers import ProceduralProvider, ReconstructionRequest, reconstruct, select_provider
@@ -235,7 +235,16 @@ def _run_edit(job_id: str, base_url: str, label: str, model_url: str | None, pro
         except (OSError, json.JSONDecodeError):
             feature_metadata = {}
         source = mesh_from_glb_for_edit(source_path, scale_metadata)
-        edited = DeterministicMeshEditor().apply(source, prompt, scale_status=scale_metadata.status, feature_metadata=feature_metadata)
+        base_restore_mesh = None
+        if "base" in prompt.lower() and any(word in prompt.lower().split() for word in ("remove", "delete")):
+            restore_name = feature_metadata.get("editor_base_restore_model")
+            if restore_name:
+                restore_path = MODELS_DIR / Path(restore_name).name
+                if not restore_path.is_file():
+                    raise UnsupportedEditError("The original mesh revision for this fused base is unavailable; use Undo to restore it safely.")
+                restore_metadata = load_scale_metadata(restore_path)
+                base_restore_mesh = mesh_from_glb_for_edit(restore_path, restore_metadata)
+        edited = DeterministicMeshEditor().apply(source, prompt, scale_status=scale_metadata.status, feature_metadata=feature_metadata, base_restore_mesh=base_restore_mesh)
         if scale_metadata.status == "calibrated":
             model_name, model_path = export_manufacturing_mesh(edited.mesh, f"{label}-edited", MODELS_DIR, scale_metadata, center=False)
         else:
@@ -244,8 +253,12 @@ def _run_edit(job_id: str, base_url: str, label: str, model_url: str | None, pro
         next_features = dict(feature_metadata) if edited.change_kind == "visual_only" else {}
         if edited.feature_metadata.get("remove_editor_base"):
             next_features.pop("editor_base_thickness_mm", None)
+            next_features.pop("editor_base_overlap_mm", None)
+            next_features.pop("editor_base_restore_model", None)
         else:
             next_features.update(edited.feature_metadata)
+        if edited.feature_metadata.get("editor_base_thickness_mm"):
+            next_features["editor_base_restore_model"] = source_path.name
         output_feature_path = model_path.with_suffix(".features.json")
         if next_features:
             output_feature_path.write_text(json.dumps(next_features, separators=(",", ":")), encoding="utf-8")

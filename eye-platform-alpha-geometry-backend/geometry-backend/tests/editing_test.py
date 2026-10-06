@@ -26,8 +26,9 @@ with_base = editor.apply(source, "add a 5 mm base", scale_status="calibrated")
 assert len(list(with_base.mesh.split())) == 1
 assert with_base.mesh.is_watertight
 assert with_base.mesh.extents[2] > source.extents[2]
-without_base = editor.apply(with_base.mesh, "remove base", scale_status="calibrated", feature_metadata=with_base.feature_metadata)
+without_base = editor.apply(with_base.mesh, "remove base", scale_status="calibrated", feature_metadata=with_base.feature_metadata, base_restore_mesh=source)
 assert np.allclose(without_base.mesh.extents, source.extents)
+assert np.isclose(without_base.mesh.volume, source.volume)
 hole = editor.apply(source, "add a 6 mm through-hole through z axis", scale_status="calibrated")
 hollow = editor.apply(source, "hollow with 2 mm walls", scale_status="calibrated")
 cut = editor.apply(source, "cut 3 mm off the bottom", scale_status="calibrated")
@@ -184,7 +185,9 @@ with TestClient(app) as client:
     base_result = add_base_job["result"]
     base_path = MODELS_DIR / base_result["model_name"]
     feature_path = base_path.with_suffix(".features.json")
-    assert json.loads(feature_path.read_text(encoding="utf-8"))["editor_base_thickness_mm"] == 5
+    base_features = json.loads(feature_path.read_text(encoding="utf-8"))
+    assert base_features["editor_base_thickness_mm"] == 5
+    assert base_features["editor_base_restore_model"] == calibrated["model_name"]
     remove_base = client.post(
         "/v1/geometry/edit",
         json={"label": "fixture", "model_url": base_result["model_url"], "prompt": "remove base"},
@@ -193,6 +196,10 @@ with TestClient(app) as client:
     assert remove_base_job["status"] == "done", remove_base_job
     removed_mesh = trimesh.load(MODELS_DIR / remove_base_job["result"]["model_name"], force="mesh")
     assert np.isclose(removed_mesh.extents[2], 0.18, atol=1e-5)
+    calibrated_mesh = trimesh.load(MODELS_DIR / calibrated["model_name"], force="mesh")
+    assert np.allclose(removed_mesh.extents, calibrated_mesh.extents, atol=1e-6)
+    assert np.isclose(removed_mesh.volume, calibrated_mesh.volume, rtol=1e-6)
+    assert removed_mesh.is_watertight
     assert not (MODELS_DIR / remove_base_job["result"]["model_name"]).with_suffix(".features.json").exists()
     for path in (base_path, base_path.with_suffix(".stl"), base_path.with_suffix(".metadata.json"), feature_path):
         path.unlink(missing_ok=True)
