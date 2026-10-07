@@ -73,6 +73,7 @@ type SnapState = {
     hidden_surfaces: string;
   };
   hiddenSurfaceUncertainty?: string;
+  reconstructionWarnings: string[];
   modelUrl?: string;
   downloadUrl?: string;
   modelHistory: ModelRevision[];
@@ -85,7 +86,7 @@ type SnapState = {
   addCaptured: (image: ScanImage) => void;
   setGeneratedModel: (url?: string, name?: string) => void;
   setGeneratedExport: (stlUrl?: string, providerKind?: string) => void;
-  setReconstructionDetails: (quality?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY', preprocessing?: SnapState['preprocessingReport'], uncertainty?: string) => void;
+  setReconstructionDetails: (quality?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY', preprocessing?: SnapState['preprocessingReport'], uncertainty?: string, warnings?: string[]) => void;
   initializeModelHistory: (revision: ModelRevision) => void;
   applyModelRevision: (revision: ModelRevision) => void;
   undoModelEdit: () => void;
@@ -172,6 +173,7 @@ const resetState = () => ({
   reconstructionQuality: undefined,
   preprocessingReport: undefined,
   hiddenSurfaceUncertainty: undefined,
+  reconstructionWarnings: [],
   modelUrl: undefined,
   downloadUrl: undefined,
   modelHistory: [],
@@ -208,13 +210,13 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => ({
   authToken: undefined,
   currentUser: undefined,
 
-  setHeroUri: (heroUri) => set({ heroUri, generatedModelUrl: undefined, generatedModelName: undefined, generatedStlUrl: undefined, generatedProviderKind: undefined, reconstructionQuality: undefined, preprocessingReport: undefined, hiddenSurfaceUncertainty: undefined, modelDownloadUrl: undefined, modelHistory: [], modelHistoryIndex: -1 }),
+  setHeroUri: (heroUri) => set({ heroUri, generatedModelUrl: undefined, generatedModelName: undefined, generatedStlUrl: undefined, generatedProviderKind: undefined, reconstructionQuality: undefined, preprocessingReport: undefined, hiddenSurfaceUncertainty: undefined, reconstructionWarnings: [], modelDownloadUrl: undefined, modelHistory: [], modelHistoryIndex: -1 }),
   setCutoutUri: (cutoutUri) => set({ cutoutUri }),
   setTargetLabel: (targetLabel) => set({ targetLabel }),
   addCaptured: (image) => set((state) => ({ captured: [...state.captured, image] })),
   setGeneratedModel: (generatedModelUrl, generatedModelName) => set({ generatedModelUrl, generatedModelName, modelUrl: generatedModelUrl }),
   setGeneratedExport: (generatedStlUrl, generatedProviderKind) => set({ generatedStlUrl, generatedProviderKind }),
-  setReconstructionDetails: (reconstructionQuality, preprocessingReport, hiddenSurfaceUncertainty) => set({ reconstructionQuality, preprocessingReport, hiddenSurfaceUncertainty }),
+  setReconstructionDetails: (reconstructionQuality, preprocessingReport, hiddenSurfaceUncertainty, reconstructionWarnings = []) => set({ reconstructionQuality, preprocessingReport, hiddenSurfaceUncertainty, reconstructionWarnings }),
   initializeModelHistory: (revision) => set({ modelHistory: [revision], modelHistoryIndex: 0 }),
   applyModelRevision: (revision) => set((state) => {
     const next = appendRevision(state.modelHistory, state.modelHistoryIndex, revision);
@@ -275,6 +277,7 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => ({
     reconstructionQuality: state.reconstructionQuality,
     preprocessingReport: state.preprocessingReport,
     hiddenSurfaceUncertainty: state.hiddenSurfaceUncertainty,
+    reconstructionWarnings: state.reconstructionWarnings,
     modelDownloadUrl: state.modelDownloadUrl,
     modelHistory: state.modelHistory,
     modelHistoryIndex: state.modelHistoryIndex,

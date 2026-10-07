@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import mimetypes
@@ -16,9 +17,10 @@ from typing import Protocol
 
 from .mesh_factory import export_glb, export_trimesh, infer_preset
 from .mesh_editing import validate_for_print
+from .reconstruction_debug import assess_reconstruction, save_debug_record
 
 
-LOGGER = logging.getLogger("dragonfly.reconstruction")
+LOGGER = logging.getLogger("uvicorn.error.dragonfly.reconstruction")
 
 
 def _memory_rss_mib() -> float | None:
@@ -32,10 +34,16 @@ def _memory_rss_mib() -> float | None:
 
 
 def _log_provider_event(request: ReconstructionRequest, stage: str, **details) -> None:
+    record = {"job_id": request.job_id, "stage": stage, "provider": "replicate-remote-gpu", "memory_rss_mib": _memory_rss_mib(), **details}
     LOGGER.info(
         "reconstruction_event %s",
-        json.dumps({"job_id": request.job_id, "stage": stage, "provider": "replicate-remote-gpu", "memory_rss_mib": _memory_rss_mib(), **details}, separators=(",", ":")),
+        json.dumps(record, separators=(",", ":")),
     )
+    if request.job_id and os.environ.get("EYE_RECONSTRUCTION_DEBUG", "1") == "1":
+        try:
+            save_debug_record(Path(__file__).resolve().parents[1] / "reconstruction_debug", request.job_id, record)
+        except (OSError, ValueError):
+            LOGGER.warning("Could not persist reconstruction diagnostics for job %s", request.job_id)
 
 
 def _load_backend_env() -> None:
@@ -58,6 +66,7 @@ class ReconstructionRequest:
     prompt: str | None = None
     quality_mode: str = "STANDARD"
     job_id: str | None = None
+    preprocessing: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +80,7 @@ class ReconstructionOutput:
     notes: str = ""
     provider_kind: str = "procedural_fallback"
     validation: dict | None = None
+    reconstruction_quality: dict | None = None
 
 
 class ReconstructionProvider(Protocol):
@@ -256,9 +266,9 @@ class ReplicateGPUProvider:
                 "model) and set EYE_REPLICATE_MODEL_VERSION."
             )
 
-        image_data_url = self._encode_image(request.image_path)
+        image_data_url = self._encode_image(request.image_path, request)
         prediction_path, prediction_body, model_name = self._prediction_request(model_ref, image_data_url)
-        _log_provider_event(request, "replicate_request_started", input_bytes=request.image_path.stat().st_size, input_mime=mimetypes.guess_type(str(request.image_path))[0] or "image/jpeg", model=model_name)
+        _log_provider_event(request, "replicate_request_started", input_bytes=request.image_path.stat().st_size, input_mime=mimetypes.guess_type(str(request.image_path))[0] or "image/jpeg", model=model_name, model_reference=model_ref, version=prediction_body["version"], parameters={key: value for key, value in prediction_body["input"].items() if key != "image"}, preprocessing=request.preprocessing)
         prediction = self._request(
             "POST",
             prediction_path,
@@ -282,6 +292,7 @@ class ReplicateGPUProvider:
 
         if prediction.get("status") != "succeeded":
             raise RuntimeError(f"Replicate prediction failed: {prediction.get('error') or prediction.get('status')}")
+        _log_provider_event(request, "replicate_prediction_complete", prediction_id=prediction_id, prediction_status=prediction.get("status"))
 
         mesh_url = self._find_mesh_url(prediction.get("output"))
         if not mesh_url:
@@ -291,6 +302,11 @@ class ReplicateGPUProvider:
         parsed_name = Path(urllib.parse.urlparse(mesh_url).path).name or "replicate-mesh.glb"
         local_path = models_dir / f"_remote_{parsed_name}"
         _log_provider_event(request, "replicate_output_parsed", prediction_id=prediction_id, output_extension=Path(parsed_name).suffix.lower(), output_host=urllib.parse.urlparse(mesh_url).hostname)
+        if request.job_id and os.environ.get("EYE_RECONSTRUCTION_DEBUG", "1") == "1":
+            try:
+                save_debug_record(Path(__file__).resolve().parents[1] / "reconstruction_debug", request.job_id, {"returned_asset_url": mesh_url})
+            except (OSError, ValueError):
+                LOGGER.warning("Could not persist asset diagnostics for job %s", request.job_id)
         urllib.request.urlretrieve(mesh_url, local_path)
         _log_provider_event(request, "replicate_output_downloaded", prediction_id=prediction_id, downloaded_bytes=local_path.stat().st_size)
         import trimesh
@@ -300,7 +316,8 @@ class ReplicateGPUProvider:
 
         model_name, model_path = export_trimesh(mesh, request.label, models_dir)
         validation = validate_for_print(mesh, "unknown")
-        _log_provider_event(request, "mesh_exported", prediction_id=prediction_id, model_name=model_name, glb_bytes=model_path.stat().st_size, stl_bytes=model_path.with_suffix(".stl").stat().st_size, watertight=validation["watertight"], status="ok")
+        reconstruction_quality = assess_reconstruction(mesh)
+        _log_provider_event(request, "mesh_exported", prediction_id=prediction_id, model_name=model_name, glb_bytes=model_path.stat().st_size, stl_bytes=model_path.with_suffix(".stl").stat().st_size, watertight=validation["watertight"], reconstruction_quality=reconstruction_quality, status="ok")
         return ReconstructionOutput(
             engine=self.name,
             model_name=model_name,
@@ -311,6 +328,7 @@ class ReplicateGPUProvider:
             notes=f"Remote GPU reconstruction completed via Replicate ({model_name}).",
             provider_kind="ai",
             validation=validation,
+            reconstruction_quality=reconstruction_quality,
         )
 
     @staticmethod
@@ -321,9 +339,22 @@ class ReplicateGPUProvider:
         return "/predictions", {"version": model_ref, "input": {"image": image_data_url}}, model_ref[:12]
 
     @staticmethod
-    def _encode_image(image_path: Path) -> str:
+    def _encode_image(image_path: Path, request: ReconstructionRequest | None = None) -> str:
         mime = mimetypes.guess_type(str(image_path))[0] or "image/jpeg"
-        encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+        image_bytes = image_path.read_bytes()
+        if request is not None:
+            from PIL import Image
+
+            with Image.open(image_path) as image:
+                dimensions = image.size
+                image_mode = image.mode
+            if request.job_id and os.environ.get("EYE_RECONSTRUCTION_DEBUG", "1") == "1":
+                try:
+                    save_debug_record(Path(__file__).resolve().parents[1] / "reconstruction_debug", request.job_id, {"preprocessing": request.preprocessing, "submitted_dimensions": dimensions, "submitted_mode": image_mode, "submitted_mime": mime}, image_bytes, image_path.suffix)
+                except (OSError, ValueError):
+                    LOGGER.warning("Could not capture submitted image for job %s", request.job_id)
+            _log_provider_event(request, "submitted_image", image_sha256=hashlib.sha256(image_bytes).hexdigest(), submitted_dimensions=dimensions, submitted_mode=image_mode, submitted_mime=mime)
+        encoded = base64.b64encode(image_bytes).decode("ascii")
         return f"data:{mime};base64,{encoded}"
 
     @staticmethod

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import json
 import os
+import hashlib
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -14,7 +15,7 @@ from PIL import Image, ImageOps, ImageStat, UnidentifiedImageError
 
 QualityMode = Literal["FAST", "STANDARD", "HIGH_QUALITY"]
 QUALITY_MAX_EDGE = {"FAST": 1024, "STANDARD": 1280, "HIGH_QUALITY": 1536}
-LOGGER = logging.getLogger("dragonfly.image_preprocessing")
+LOGGER = logging.getLogger("uvicorn.error.dragonfly.image_preprocessing")
 
 
 @lru_cache(maxsize=2)
@@ -34,6 +35,10 @@ class ImagePreprocessingReport:
     resized: bool
     source_images: int = 1
     hidden_surfaces: str = "inferred_from_single_view_not_measured"
+    exif_orientation: int = 1
+    input_format: str = "unknown"
+    alpha_composited: bool = False
+    image_sha256: str = ""
 
     def as_dict(self) -> dict:
         value = asdict(self)
@@ -58,7 +63,16 @@ def prepare_reconstruction_image(image_path: Path, uploads_dir: Path, quality_mo
                 opened.draft("RGB", (max_edge, max_edge))
             oriented = ImageOps.exif_transpose(opened)
             oriented.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
-            image = oriented.convert("RGB")
+            alpha_composited = "A" in oriented.getbands() or "transparency" in oriented.info
+            if alpha_composited:
+                rgba = oriented.convert("RGBA")
+                image = Image.new("RGB", rgba.size, "white")
+                alpha_channel = rgba.getchannel("A")
+                image.paste(rgba, mask=alpha_channel)
+                alpha_channel.close()
+                rgba.close()
+            else:
+                image = oriented.convert("RGB")
             if oriented is not opened:
                 oriented.close()
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
@@ -111,12 +125,12 @@ def prepare_reconstruction_image(image_path: Path, uploads_dir: Path, quality_mo
         segmented.close()
         output_path = uploads_dir / f"prepared_{uuid4().hex}.png"
         cropped.save(output_path, format="PNG", optimize=True)
-        report = ImagePreprocessingReport(mode, source_dimensions, cropped.size, model_name, True, False)
+        report = ImagePreprocessingReport(mode, source_dimensions, cropped.size, model_name, True, cropped.size != source_dimensions, exif_orientation=orientation, input_format=image_format or "unknown", alpha_composited=alpha_composited, image_sha256=hashlib.sha256(output_path.read_bytes()).hexdigest())
         cropped.close()
     else:
         output_path = uploads_dir / f"prepared_{uuid4().hex}.jpg"
         image.save(output_path, format="JPEG", quality=88, optimize=False)
-        report = ImagePreprocessingReport(mode, source_dimensions, image.size, "bypassed_resource_safe", False, image.size != source_dimensions)
+        report = ImagePreprocessingReport(mode, source_dimensions, image.size, "bypassed_resource_safe", False, image.size != source_dimensions, exif_orientation=orientation, input_format=image_format or "unknown", alpha_composited=alpha_composited, image_sha256=hashlib.sha256(output_path.read_bytes()).hexdigest())
         image.close()
 
     LOGGER.info(

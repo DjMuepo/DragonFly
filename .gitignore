@@ -16,6 +16,7 @@ node_modules/
 # Geometry backend runtime output
 eye-platform-alpha-geometry-backend/geometry-backend/static/models/*
 eye-platform-alpha-geometry-backend/geometry-backend/static/uploads/*
+eye-platform-alpha-geometry-backend/geometry-backend/reconstruction_debug/
 
 # macOS
 .DS_Store

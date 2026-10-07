@@ -13,6 +13,7 @@ export default function ReconstructScreen() {
   const setGeneratedModel = useSnapStore((s) => s.setGeneratedModel);
   const setGeneratedExport = useSnapStore((s) => s.setGeneratedExport);
   const setReconstructionDetails = useSnapStore((s) => s.setReconstructionDetails);
+  const reconstructionWarnings = useSnapStore((s) => s.reconstructionWarnings);
   const initializeModelHistory = useSnapStore((s) => s.initializeModelHistory);
   const setJobResultLinks = useSnapStore((s) => s.setJobResultLinks);
   const imageUri = cutoutUri || heroUri;
@@ -68,7 +69,8 @@ export default function ReconstructScreen() {
 
         setGeneratedModel(result.model_url, result.model_name);
         setGeneratedExport(result.stl_download_url, result.provider_kind);
-        setReconstructionDetails(result.quality_mode, result.preprocessing, result.hidden_surface_uncertainty);
+        const warnings = result.reconstruction_quality ? [...result.reconstruction_quality.warnings, result.reconstruction_quality.limitation] : [];
+        setReconstructionDetails(result.quality_mode, result.preprocessing, result.hidden_surface_uncertainty, warnings);
         initializeModelHistory({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, summary: 'Original reconstructed model', scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
         setJobResultLinks(result.model_url, result.download_url);
         setModelName(result.model_name);
@@ -108,7 +110,7 @@ export default function ReconstructScreen() {
       <Text style={styles.objectLabel}>Object: {targetLabel || 'Unknown object'}</Text>
 
       <Pressable style={styles.advancedToggle} onPress={() => setShowAdvanced((value) => !value)}>
-        <Text style={styles.advancedText}>{showAdvanced ? 'Hide' : 'Advanced'} reconstruction quality</Text>
+        <Text style={styles.advancedText}>{showAdvanced ? 'Hide' : 'Advanced'} image preparation</Text>
       </Pressable>
       {showAdvanced ? (
         <>
@@ -153,8 +155,9 @@ export default function ReconstructScreen() {
       ) : (
         <>
           <View style={styles.readyCard}>
-            <Text style={styles.readyTitle}>3D Model Ready</Text>
-            <Text style={styles.readyText}>Your GLB was generated from this photo.</Text>
+            <Text style={styles.readyTitle}>3D Model Ready for Review</Text>
+            <Text style={styles.readyText}>Compare the reconstructed shape with your photo before accepting it.</Text>
+            {reconstructionWarnings.map((warning) => <Text key={warning} style={styles.warning}>{warning}</Text>)}
             {modelName ? <Text style={styles.readySubtext}>Model: {modelName}</Text> : null}
             {engine ? <Text style={styles.readySubtext}>Engine: {engine}</Text> : null}
           </View>
@@ -165,6 +168,7 @@ export default function ReconstructScreen() {
             <Pressable style={styles.secondaryButton} onPress={() => router.push('/snap/result')}>
               <Text style={styles.buttonText}>Save / Finish</Text>
             </Pressable>
+            {reconstructionWarnings.length ? <Pressable style={styles.darkButton} onPress={() => router.push('/snap/camera')}><Text style={styles.buttonText}>Retake Photo</Text></Pressable> : null}
 
             <Pressable
               style={styles.darkButton}

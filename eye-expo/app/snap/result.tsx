@@ -15,6 +15,7 @@ export default function ResultScreen() {
   const reconstructionQuality = useSnapStore((s) => s.reconstructionQuality);
   const preprocessingReport = useSnapStore((s) => s.preprocessingReport);
   const hiddenSurfaceUncertainty = useSnapStore((s) => s.hiddenSurfaceUncertainty);
+  const reconstructionWarnings = useSnapStore((s) => s.reconstructionWarnings);
   const modelDownloadUrl = useSnapStore((s) => s.modelDownloadUrl);
   const clear = useSnapStore((s) => s.clear);
   const imageUri = cutoutUri || heroUri;
@@ -44,19 +45,21 @@ export default function ResultScreen() {
       {imageUri ? <Image source={{ uri: imageUri }} style={styles.image} /> : null}
       <Text style={styles.label}>Object: {targetLabel || 'Unknown object'}</Text>
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>{hasModel ? 'Model Ready' : 'Model Unavailable'}</Text>
-        <Text style={styles.cardText}>{hasModel ? 'Your 3D model is ready to view and export.' : 'Generation has not completed. Retry to create a model.'}</Text>
+        <Text style={styles.cardTitle}>{hasModel ? 'Review Reconstruction' : 'Model Unavailable'}</Text>
+        <Text style={styles.cardText}>{hasModel ? 'Compare the shape with your photo before accepting it.' : 'Generation has not completed. Retry to create a model.'}</Text>
         <Text style={styles.cardSubtext}>Model: {generatedModelName || 'not generated yet'}</Text>
         {hasModel ? <Text style={styles.cardSubtext}>{generatedProviderKind === 'ai' ? 'AI reconstruction' : 'Procedural fallback (not AI)'}</Text> : null}
-        {hasModel && reconstructionQuality ? <Text style={styles.cardSubtext}>Quality: {reconstructionQuality.replace('_', ' ')}</Text> : null}
+        {hasModel && reconstructionQuality ? <Text style={styles.cardSubtext}>Input mode: {reconstructionQuality.replace('_', ' ')}</Text> : null}
         {hasModel && preprocessingReport ? <Text style={styles.cardSubtext}>{preprocessingReport.foreground_segmenter} segmentation · object crop {preprocessingReport.object_crop_applied ? 'applied' : 'not applied'}</Text> : null}
         {hasModel && hiddenSurfaceUncertainty ? <Text style={styles.cardSubtext}>{hiddenSurfaceUncertainty}</Text> : null}
+        {hasModel ? reconstructionWarnings.map((warning) => <Text key={warning} style={styles.cardSubtext}>{warning}</Text>) : null}
       </View>
       {message ? <Text style={styles.message}>{message}</Text> : null}
       <View style={styles.actions}>
         {hasModel ? <Pressable style={styles.primaryButton} onPress={() => router.push('/snap/viewer')}><Text style={styles.buttonText}>View 3D</Text></Pressable> : <Pressable style={styles.primaryButton} onPress={() => router.replace('/snap/reconstruct')}><Text style={styles.buttonText}>Retry Generation</Text></Pressable>}
         {hasModel ? <Pressable style={styles.secondaryButton} onPress={() => onDownload(downloadUrl)}><Text style={styles.buttonText}>Download GLB</Text></Pressable> : null}
         {hasModel && generatedStlUrl ? <Pressable style={styles.secondaryButton} onPress={() => onDownload(generatedStlUrl)}><Text style={styles.buttonText}>Download STL</Text></Pressable> : null}
+        {hasModel && reconstructionWarnings.length ? <Pressable style={styles.darkButton} onPress={() => router.replace('/snap/reconstruct')}><Text style={styles.buttonText}>Retry Reconstruction</Text></Pressable> : null}
         <Pressable style={styles.darkButton} onPress={() => { clear(); router.push('/'); }}><Text style={styles.buttonText}>New Scan</Text></Pressable>
       </View>
     </ScrollView>

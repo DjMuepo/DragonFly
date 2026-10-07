@@ -39,6 +39,12 @@ export type GeometryResponse = {
     hidden_surfaces: string;
   };
   hidden_surface_uncertainty?: string;
+  reconstruction_quality?: {
+    status: 'warning' | 'not_flagged';
+    fidelity_verified: false;
+    warnings: string[];
+    limitation: string;
+  };
 };
 
 export type GeometryJobResponse = {

@@ -43,7 +43,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 JOBS: Dict[str, dict] = {}
-LOGGER = logging.getLogger("dragonfly.reconstruction")
+LOGGER = logging.getLogger("uvicorn.error.dragonfly.reconstruction")
 PREPROCESSING_LOCK = threading.Lock()
 
 
@@ -103,6 +103,7 @@ class GeometryResponse(BaseModel):
     quality_mode: str = "STANDARD"
     preprocessing: Optional[dict] = None
     hidden_surface_uncertainty: Optional[str] = None
+    reconstruction_quality: Optional[dict] = None
 
 
 class GeometryJobResponse(BaseModel):
@@ -188,7 +189,7 @@ def _run_generation(job_id: str, base_url: str, label: str, confidence: float, i
             image_path.unlink(missing_ok=True)
             _log_reconstruction_event(job_id, "preprocessing_complete", provider=provider_name, input_dimensions=input_dimensions, processed_dimensions=prep_report.output_dimensions, segmenter=prep_report.foreground_segmenter, crop_applied=prep_report.object_crop_applied, processed_bytes=prepared_path.stat().st_size)
             job.update(progress=25, stage="preprocessed", stage_detail="Photo normalized; submitting reconstruction.", preprocessing=preprocessing)
-        request = ReconstructionRequest(label=label, confidence=confidence, image_path=prepared_path, prompt=prompt, quality_mode=quality_mode, job_id=job_id)
+        request = ReconstructionRequest(label=label, confidence=confidence, image_path=prepared_path, prompt=prompt, quality_mode=quality_mode, job_id=job_id, preprocessing=preprocessing)
         if image_path is None:
             generated = ProceduralProvider().generate(request, MODELS_DIR)
         else:
@@ -206,6 +207,7 @@ def _run_generation(job_id: str, base_url: str, label: str, confidence: float, i
             "quality_mode": quality_mode,
             "preprocessing": preprocessing,
             "hidden_surface_uncertainty": "Single-photo geometry behind or occluded from the camera is inferred, not measured.",
+            "reconstruction_quality": generated.reconstruction_quality,
         }
         if generated.validation is not None:
             generation_metadata["validation"] = generated.validation

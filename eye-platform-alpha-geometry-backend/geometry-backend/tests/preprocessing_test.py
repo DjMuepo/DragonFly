@@ -31,8 +31,22 @@ with TemporaryDirectory() as temporary:
     assert report.output_dimensions == (960, 1280)
     assert report.foreground_segmenter == "bypassed_resource_safe"
     assert report.object_crop_applied is False
+    assert report.exif_orientation == 6
+    assert report.input_format == "JPEG"
     peak_rss_mib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
     assert peak_rss_mib < 512, f"preprocessing peak RSS was {peak_rss_mib:.1f} MiB"
     assert prepared.stat().st_size < 2 * 1024 * 1024
     print({"preprocessing": "PASS", "input_dimensions": report.source_dimensions, "output_dimensions": report.output_dimensions, "segmenter": report.foreground_segmenter, "peak_rss_mib": round(peak_rss_mib, 1)})
     prepared.unlink(missing_ok=True)
+
+    transparent_source = root / "transparent.png"
+    transparent = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+    ImageDraw.Draw(transparent).rectangle((80, 80, 175, 175), fill=(255, 0, 0, 255))
+    transparent.save(transparent_source)
+    transparent.close()
+    prepared, report = prepare_reconstruction_image(transparent_source, root)
+    with Image.open(prepared) as output:
+        assert all(channel > 245 for channel in output.getpixel((0, 0)))
+        assert output.getpixel((128, 128))[0] > 245
+    assert report.alpha_composited
+    assert len(report.image_sha256) == 64
