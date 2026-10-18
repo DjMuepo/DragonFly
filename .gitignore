@@ -17,6 +17,8 @@ node_modules/
 eye-platform-alpha-geometry-backend/geometry-backend/static/models/*
 eye-platform-alpha-geometry-backend/geometry-backend/static/uploads/*
 eye-platform-alpha-geometry-backend/geometry-backend/reconstruction_debug/
+evaluation-data/
+evaluation-runs/
 
 # macOS
 .DS_Store

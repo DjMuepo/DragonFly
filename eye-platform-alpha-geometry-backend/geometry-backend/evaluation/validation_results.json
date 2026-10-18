@@ -1,0 +1,459 @@
+{
+  "generated_at": "2026-10-18T05:21:12.998072+00:00",
+  "production_base_commit": "2ac30ecb6e69dc06bb55d90556322474c87ea569",
+  "evidence_kind_counts": {
+    "synthetic": 11,
+    "photo": 2,
+    "screenshot_proxy": 2
+  },
+  "new_real_predictions": 0,
+  "new_inference_cost_usd": 0,
+  "actual_model_price_usd": null,
+  "paired_dry_run_only": {
+    "unique_inputs": 17,
+    "estimated_cost_usd": null,
+    "note": "No configuration or paid authorization supplied; this is an input-deduplication count only."
+  },
+  "fallback_cases": 13,
+  "max_worker_peak_rss_mib": 217.53515625,
+  "reconstruction_fidelity": "NOT_EVALUATED_NO_NEW_INFERENCE",
+  "existing_saved_models_inspected": 1,
+  "tests": {
+    "evaluation_unit_tests": 15,
+    "existing_backend_scripts": [
+      "preprocessing_test.py: PASS",
+      "reconstruction_fidelity_test.py: PASS (mock transport)",
+      "smoke_test.py: PASS",
+      "editing_test.py: PASS"
+    ],
+    "frontend": [
+      "test:history: PASS",
+      "typecheck: PASS",
+      "build:web: PASS"
+    ],
+    "iphone_sized_worker": "PASS: 4032x3024 JPEG with EXIF 6 -> 960x1280; fresh experimental worker peak below 512 MiB"
+  },
+  "deferred": [
+    "Paired real reconstruction predictions with explicit cost authorization",
+    "Real transparent and reflective camera photos with annotated masks",
+    "Human 3D fidelity reviews of paired outputs",
+    "Mobile Safari and physical iPhone workflow checks"
+  ],
+  "recommendation": "DO NOT PROMOTE; no controlled real-world reconstruction improvement demonstrated.",
+  "cases": [
+    {
+      "id": "synthetic-bottle",
+      "kind": "synthetic",
+      "category": "opaque",
+      "confidence": 0.7684,
+      "fallback": false,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8390121459960938,
+        "silhouette_iou": 0.16098785400390625,
+        "important_detail_recall": null
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.14284553671168884,
+        "silhouette_iou": 0.8571544632883111,
+        "important_detail_recall": null
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.14284553671168884,
+        "silhouette_iou": 0.8571544632883111,
+        "important_detail_recall": null
+      },
+      "peak_rss_mib": 184.61328125,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-ceramic-mug",
+      "kind": "synthetic",
+      "category": "opaque",
+      "confidence": 0.4231,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8159294128417969,
+        "silhouette_iou": 0.18407058715820312,
+        "important_detail_recall": 1.0
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 0.12250015543075042,
+        "background_contamination": 0.44513282643386837,
+        "silhouette_iou": 0.11153882441739786,
+        "important_detail_recall": 0.6534364839107524
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8159294128417969,
+        "silhouette_iou": 0.18407058715820312,
+        "important_detail_recall": 1.0
+      },
+      "peak_rss_mib": 184.7265625,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-clear-cup",
+      "kind": "synthetic",
+      "category": "transparent",
+      "confidence": 0.3104,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8734817504882812,
+        "silhouette_iou": 0.12651824951171875,
+        "important_detail_recall": null
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 0.9999095459205211,
+        "background_contamination": 0.1387575962187711,
+        "silhouette_iou": 0.8611753096678698,
+        "important_detail_recall": null
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8734817504882812,
+        "silhouette_iou": 0.12651824951171875,
+        "important_detail_recall": null
+      },
+      "peak_rss_mib": 183.96875,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-transparent-container",
+      "kind": "synthetic",
+      "category": "transparent",
+      "confidence": 0.2857,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.7934417724609375,
+        "silhouette_iou": 0.2065582275390625,
+        "important_detail_recall": null
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 0.0,
+        "background_contamination": 0.0,
+        "silhouette_iou": 0.0,
+        "important_detail_recall": null
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.7934417724609375,
+        "silhouette_iou": 0.2065582275390625,
+        "important_detail_recall": null
+      },
+      "peak_rss_mib": 146.16015625,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-metal-utensil",
+      "kind": "synthetic",
+      "category": "reflective",
+      "confidence": 0.5645,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.9644012451171875,
+        "silhouette_iou": 0.0355987548828125,
+        "important_detail_recall": 1.0
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.4507033963152628,
+        "silhouette_iou": 0.5492966036847372,
+        "important_detail_recall": 1.0
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.9644012451171875,
+        "silhouette_iou": 0.0355987548828125,
+        "important_detail_recall": 1.0
+      },
+      "peak_rss_mib": 184.46484375,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-glossy-object",
+      "kind": "synthetic",
+      "category": "reflective",
+      "confidence": 0.4598,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.83770751953125,
+        "silhouette_iou": 0.16229248046875,
+        "important_detail_recall": null
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 0.20562241444151938,
+        "background_contamination": 0.5397242975902347,
+        "silhouette_iou": 0.1656755425930836,
+        "important_detail_recall": null
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.83770751953125,
+        "silhouette_iou": 0.16229248046875,
+        "important_detail_recall": null
+      },
+      "peak_rss_mib": 184.453125,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-cardboard-box",
+      "kind": "synthetic",
+      "category": "geometric",
+      "confidence": 0.585,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8290023803710938,
+        "silhouette_iou": 0.17099761962890625,
+        "important_detail_recall": null
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.09436935571852839,
+        "silhouette_iou": 0.9056306442814716,
+        "important_detail_recall": null
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8290023803710938,
+        "silhouette_iou": 0.17099761962890625,
+        "important_detail_recall": null
+      },
+      "peak_rss_mib": 184.49609375,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-mechanical-component",
+      "kind": "synthetic",
+      "category": "geometric",
+      "confidence": 0.5175,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8618202209472656,
+        "silhouette_iou": 0.13817977905273438,
+        "important_detail_recall": 1.0
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.16390453328409196,
+        "silhouette_iou": 0.8360954667159081,
+        "important_detail_recall": 1.0
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8618202209472656,
+        "silhouette_iou": 0.13817977905273438,
+        "important_detail_recall": 1.0
+      },
+      "peak_rss_mib": 184.33984375,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-shoe",
+      "kind": "synthetic",
+      "category": "irregular",
+      "confidence": 0.3101,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8803482055664062,
+        "silhouette_iou": 0.11965179443359375,
+        "important_detail_recall": null
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 0.30405534655359306,
+        "background_contamination": 0.6707064429252123,
+        "silhouette_iou": 0.1877694867200882,
+        "important_detail_recall": null
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8803482055664062,
+        "silhouette_iou": 0.11965179443359375,
+        "important_detail_recall": null
+      },
+      "peak_rss_mib": 184.4921875,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-toy",
+      "kind": "synthetic",
+      "category": "irregular",
+      "confidence": 0.3773,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.83770751953125,
+        "silhouette_iou": 0.16229248046875,
+        "important_detail_recall": null
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 0.20313087626927417,
+        "background_contamination": 0.1927890902297777,
+        "silhouette_iou": 0.19373206599713055,
+        "important_detail_recall": null
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.83770751953125,
+        "silhouette_iou": 0.16229248046875,
+        "important_detail_recall": null
+      },
+      "peak_rss_mib": 184.625,
+      "human_review": "pending"
+    },
+    {
+      "id": "synthetic-complex-household-object",
+      "kind": "synthetic",
+      "category": "irregular",
+      "confidence": 0.3796,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8254508972167969,
+        "silhouette_iou": 0.17454910278320312,
+        "important_detail_recall": null
+      },
+      "candidate_mask_metrics": {
+        "measured": true,
+        "foreground_completeness": 0.11720611054046376,
+        "background_contamination": 0.3747230966538417,
+        "silhouette_iou": 0.10951379387800943,
+        "important_detail_recall": null
+      },
+      "selected_input_metrics": {
+        "measured": true,
+        "foreground_completeness": 1.0,
+        "background_contamination": 0.8254508972167969,
+        "silhouette_iou": 0.17454910278320312,
+        "important_detail_recall": null
+      },
+      "peak_rss_mib": 184.47265625,
+      "human_review": "pending"
+    },
+    {
+      "id": "real-ceramic-mug",
+      "kind": "photo",
+      "category": "opaque",
+      "confidence": 0.5492,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "candidate_mask_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "selected_input_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "peak_rss_mib": 217.53515625,
+      "human_review": "pending"
+    },
+    {
+      "id": "real-outdoor-shoe",
+      "kind": "photo",
+      "category": "irregular",
+      "confidence": 0.4356,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "candidate_mask_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "selected_input_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "peak_rss_mib": 186.05078125,
+      "human_review": "pending"
+    },
+    {
+      "id": "proxy-cup-scene",
+      "kind": "screenshot_proxy",
+      "category": "transparent",
+      "confidence": 0.6209,
+      "fallback": true,
+      "baseline_mask_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "candidate_mask_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "selected_input_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "peak_rss_mib": 152.49609375,
+      "human_review": "pending"
+    },
+    {
+      "id": "proxy-full-ui",
+      "kind": "screenshot_proxy",
+      "category": "transparent",
+      "confidence": 0.8239,
+      "fallback": false,
+      "baseline_mask_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "candidate_mask_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "selected_input_metrics": {
+        "measured": false,
+        "reason": "No annotated silhouette; human mask review required."
+      },
+      "peak_rss_mib": 166.0625,
+      "human_review": "inconclusive"
+    }
+  ]
+}
