@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "name": "DragonFly six-object real-camera comparison",
+  "dataset_directory": "dataset",
+  "settings": {
+    "provider": "replicate-remote-gpu",
+    "model_version": null,
+    "quality_mode": "STANDARD",
+    "inference_parameters": {},
+    "pipeline_A": "existing production preprocessing",
+    "pipeline_B": "experimental GrabCut with exact-baseline fallback",
+    "segmentation_enabled_in_production": false,
+    "estimated_unit_cost_usd": null
+  },
+  "objects": [
+    {"id": "opaque-bottle", "object": "Opaque bottle", "category": "opaque", "conditions": [], "expected_silhouette": "One complete bottle including neck and cap; exclude background and reflections.", "input_directory": "inputs/opaque-bottle", "status": "pending", "image": null, "sha256": null, "pixel_dimensions": null, "exif_orientation": null, "lighting": null, "background": null, "visible_reflections": null, "transparency": null, "capture_date": null, "known_dimensions_mm": null, "camera_original_confirmed": false},
+    {"id": "ceramic-mug", "object": "Ceramic mug", "category": "opaque", "conditions": ["handle", "opening"], "expected_silhouette": "One mug with the full handle, rim and opening; preserve the handle hole.", "input_directory": "inputs/ceramic-mug", "status": "pending", "image": null, "sha256": null, "pixel_dimensions": null, "exif_orientation": null, "lighting": null, "background": null, "visible_reflections": null, "transparency": null, "capture_date": null, "known_dimensions_mm": null, "camera_original_confirmed": false},
+    {"id": "transparent-cup", "object": "Transparent plastic cup", "category": "transparent", "conditions": ["transparent", "thin-rim"], "expected_silhouette": "One cup, including faint transparent boundaries and base; exclude reflected copies.", "input_directory": "inputs/transparent-cup", "status": "pending", "image": null, "sha256": null, "pixel_dimensions": null, "exif_orientation": null, "lighting": null, "background": null, "visible_reflections": null, "transparency": null, "capture_date": null, "known_dimensions_mm": null, "camera_original_confirmed": false},
+    {"id": "metal-object", "object": "Metal utensil or container", "category": "reflective", "conditions": ["reflective", "thin-details"], "expected_silhouette": "One metal object with complete thin structures or container edges; no background highlight geometry.", "input_directory": "inputs/metal-object", "status": "pending", "image": null, "sha256": null, "pixel_dimensions": null, "exif_orientation": null, "lighting": null, "background": null, "visible_reflections": null, "transparency": null, "capture_date": null, "known_dimensions_mm": null, "camera_original_confirmed": false},
+    {"id": "shoe", "object": "Shoe", "category": "irregular", "conditions": ["laces", "complex-silhouette"], "expected_silhouette": "One shoe with sole, opening, laces and asymmetric outline; exclude surrounding ground.", "input_directory": "inputs/shoe", "status": "pending", "image": null, "sha256": null, "pixel_dimensions": null, "exif_orientation": null, "lighting": null, "background": null, "visible_reflections": null, "transparency": null, "capture_date": null, "known_dimensions_mm": null, "camera_original_confirmed": false},
+    {"id": "mechanical-component", "object": "Mechanical component", "category": "geometric", "conditions": ["openings", "small-details"], "expected_silhouette": "One component with holes, edges, tabs and small details; dimensions require independent calibration.", "input_directory": "inputs/mechanical-component", "status": "pending", "image": null, "sha256": null, "pixel_dimensions": null, "exif_orientation": null, "lighting": null, "background": null, "visible_reflections": null, "transparency": null, "capture_date": null, "known_dimensions_mm": null, "camera_original_confirmed": false}
+  ]
+}

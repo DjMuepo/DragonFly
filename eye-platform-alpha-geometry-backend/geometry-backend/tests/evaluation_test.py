@@ -14,6 +14,7 @@ import trimesh
 from PIL import Image, ImageDraw
 
 from evaluation.cli import main, prepare_case
+from evaluation.cohort import cohort_plan, import_camera_photo, initialize_cohort, validate_cohort
 from evaluation.dataset import add_case, initialize_fixtures, load_dataset
 from evaluation.isolation import GrabCutSegmentation, digest, prepare_baseline
 from evaluation.metrics import inspect_model, mask_metrics
@@ -50,6 +51,79 @@ class EvaluationTests(unittest.TestCase):
         original.write_bytes(b"changed")
         with self.assertRaisesRegex(ValueError, "checksum"):
             load_dataset(self.root / "dataset")
+
+    def test_six_object_cohort_pending_and_cost_plan(self):
+        root = self.root / "cohort"
+        initialize_cohort(root)
+        plan = cohort_plan(root)
+        self.assertEqual(plan["ready_photos"], 0)
+        self.assertEqual(len(plan["missing_photos"]), 6)
+        self.assertEqual(plan["maximum_new_predictions"], 12)
+        self.assertIsNone(plan["estimated_cost_for_12_usd"])
+        self.assertEqual(len(list((root / "inputs").iterdir())), 6)
+        priced = cohort_plan(root, "test-only-version", 0.2)
+        self.assertAlmostEqual(priced["estimated_cost_for_12_usd"], 2.4)
+        self.assertEqual(priced["paid_predictions_executed"], 0)
+
+    def test_real_cohort_requires_camera_confirmation_and_metadata(self):
+        root = self.root / "cohort"
+        initialize_cohort(root)
+        arguments = (root, "opaque-bottle", self.source, "unit-test light", "unit-test background", "none", "opaque", "2026-10-18")
+        with self.assertRaises(PermissionError):
+            import_camera_photo(*arguments, False)
+        original_hash = digest(self.source)
+        item = import_camera_photo(*arguments, True)
+        self.assertEqual(item["status"], "ready")
+        self.assertEqual(item["sha256"], original_hash)
+        self.assertEqual(digest(self.source), original_hash)
+        self.assertEqual(item["pixel_dimensions"], [320, 240])
+        self.assertEqual(item["exif_orientation"], 6)
+        self.assertEqual(cohort_plan(root)["ready_photos"], 1)
+        with self.assertRaisesRegex(ValueError, "overwriting"):
+            import_camera_photo(*arguments, True)
+        cohort = validate_cohort(root)
+        cohort["objects"][0]["lighting"] = "mismatched"
+        write_json(root / "cohort.json", cohort)
+        with self.assertRaisesRegex(ValueError, "lighting"):
+            validate_cohort(root)
+
+    def test_real_cohort_rejects_synthetic_or_screenshot_substitute(self):
+        root = self.root / "cohort"
+        initialize_cohort(root)
+        import_camera_photo(root, "opaque-bottle", self.source, "unit-test", "unit-test", "none", "opaque", "2026-10-18", True)
+        manifest = root / "dataset/manifest.json"
+        data = json.loads(manifest.read_text())
+        for kind in ("synthetic", "screenshot_proxy"):
+            data["cases"][0]["kind"] = kind
+            write_json(manifest, data)
+            with self.assertRaisesRegex(ValueError, "original camera photograph"):
+                validate_cohort(root)
+
+    def test_pending_real_cohort_cli_never_prepares_or_spends(self):
+        root = self.root / "cohort"
+        with patch.object(ReplicateGPUProvider, "_request", side_effect=AssertionError("Network forbidden")) as transport, redirect_stdout(io.StringIO()):
+            main(["init-real", "--cohort", str(root)])
+            main(["validate-real", "--cohort", str(root)])
+            main(["plan-real", "--cohort", str(root)])
+            with self.assertRaises(SystemExit) as stopped:
+                main(["prepare-real", "--cohort", str(root), "--output", str(self.root / "output")])
+            self.assertEqual(stopped.exception.code, 2)
+            self.assertFalse(transport.called)
+        self.assertTrue((root / "preparation.html").is_file())
+        self.assertFalse((self.root / "output").exists())
+
+    def test_paired_inputs_share_original_and_fallback(self):
+        self.make_dataset()
+        with patch.dict(os.environ, {"DRAGONFLY_EVAL_GRABCUT": "1"}):
+            import cv2
+
+            with patch.object(cv2, "grabCut", side_effect=cv2.error("uncertain")):
+                record = prepare_case(self.root / "dataset", self.root / "output", "real-test", "grabcut", "STANDARD")
+        self.assertEqual(digest(Path(record["original"])), record["case"]["sha256"])
+        self.assertEqual(record["pipelines"]["A"]["metadata"]["image_sha256"], record["pipelines"]["B"]["metadata"]["image_sha256"])
+        plan = prediction_plan([record], self.root / "output", "test-only-version", None)
+        self.assertEqual(plan["new_predictions"], 1)
+        self.assertEqual(plan["entries"][0]["cases"], ["real-test:A", "real-test:B"])
 
     def test_photo_metadata_and_no_overwrite(self):
         original_hash = digest(self.source)

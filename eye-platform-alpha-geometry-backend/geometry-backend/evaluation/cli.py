@@ -13,6 +13,7 @@ from pathlib import Path
 from PIL import Image
 
 from .dataset import CATEGORIES, add_case, initialize_fixtures, load_dataset, timestamp
+from .cohort import cohort_plan, import_camera_photo, initialize_cohort, validate_cohort, write_cohort_plan
 from .isolation import SEGMENTATION_PROVIDERS, digest, prepare_baseline
 from .metrics import inspect_model, mask_metrics
 from .predictions import authorize, prediction_plan, run_prediction, write_json
@@ -119,6 +120,25 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     initialize = commands.add_parser("init", help="Generate explicitly synthetic fixtures and masks")
     initialize.add_argument("--dataset", type=Path, required=True)
+    for name in ("init-real", "validate-real", "plan-real", "import-real", "prepare-real"):
+        command = commands.add_parser(name, help="Strict six-object real-camera preparation; no inference")
+        command.add_argument("--cohort", type=Path, required=True)
+        if name == "plan-real":
+            command.add_argument("--model-version")
+            command.add_argument("--estimated-cost-per-prediction", type=float)
+        elif name == "import-real":
+            command.add_argument("--case", required=True)
+            command.add_argument("--image", type=Path, required=True)
+            command.add_argument("--lighting", required=True)
+            command.add_argument("--background", required=True)
+            command.add_argument("--reflections", required=True)
+            command.add_argument("--transparency", required=True)
+            command.add_argument("--capture-date", required=True)
+            command.add_argument("--confirm-original-camera-photo", action="store_true")
+            command.add_argument("--dimensions-json", type=json.loads)
+        elif name == "prepare-real":
+            command.add_argument("--output", type=Path, required=True)
+            command.add_argument("--isolation", choices=tuple(SEGMENTATION_PROVIDERS), default="grabcut")
     add = commands.add_parser("add", help="Import an unmodified photo and capture metadata")
     add.add_argument("--dataset", type=Path, required=True)
     add.add_argument("--image", type=Path, required=True)
@@ -178,6 +198,22 @@ def main(argv: list[str] | None = None) -> None:
     try:
         if args.command == "init":
             print(json.dumps({"synthetic_cases": len(initialize_fixtures(args.dataset.resolve())), "paid_predictions": 0}))
+        elif args.command in {"init-real", "validate-real", "plan-real", "import-real", "prepare-real"}:
+            root = args.cohort.resolve()
+            if args.command == "init-real":
+                initialize_cohort(root)
+            elif args.command == "import-real":
+                import_camera_photo(root, args.case, args.image.resolve(), args.lighting, args.background, args.reflections, args.transparency, args.capture_date, args.confirm_original_camera_photo, args.dimensions_json)
+            cohort = validate_cohort(root)
+            plan = cohort_plan(root, getattr(args, "model_version", None), getattr(args, "estimated_cost_per_prediction", None))
+            write_cohort_plan(root, plan)
+            if args.command == "prepare-real":
+                if plan["missing_photos"]:
+                    raise ValueError("Required camera photographs still pending: " + ", ".join(plan["missing_photos"]))
+                records = prepare_dataset(root / cohort["dataset_directory"], args.output, None, args.isolation, cohort["settings"]["quality_mode"])
+                print(json.dumps({"prepared_cases": len(records), "paid_predictions_executed": 0, "report": str(args.output.resolve() / "comparison.html")}, indent=2))
+            else:
+                print(json.dumps(plan, indent=2))
         elif args.command == "add":
             case = add_case(args.dataset.resolve(), args.image.resolve(), args.id, args.category, args.object, args.kind, args.lighting, args.background, args.conditions, args.silhouette, args.dimensions_json, args.mask, args.details, args.attribution)
             print(json.dumps(case, indent=2))

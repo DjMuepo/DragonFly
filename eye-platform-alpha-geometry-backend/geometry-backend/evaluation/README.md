@@ -38,6 +38,44 @@ Workers run serially in separate processes, recording per-case elapsed preproces
 
 ## Add Photographs Without Code Changes
 
+### Phase 2: Six Fresh Camera Originals
+
+Use the separate six-object cohort rather than substituting the older synthetic dataset, Commons examples, screenshot proxies, or generated meshes. The checked-in `real_world_cohort.json` template reserves opaque bottle, ceramic mug, transparent plastic cup, metal utensil/container, shoe, and mechanical component. Missing evidence is `pending`, with null dimensions/orientation/hash rather than invented values.
+
+```bash
+PYTHONPATH=. .venv312/bin/python -m evaluation.cli init-real --cohort ../../evaluation-data/real-world-six
+PYTHONPATH=. .venv312/bin/python -m evaluation.cli validate-real --cohort ../../evaluation-data/real-world-six
+PYTHONPATH=. .venv312/bin/python -m evaluation.cli plan-real --cohort ../../evaluation-data/real-world-six
+```
+
+This creates `cohort.json`, six `inputs/<object-id>/` staging directories, a `dataset/` manifest when the first photo is imported, `dry-run.json`, and `preparation.html`. The pending report records the A/B configuration, automated versus human criteria, missing photographs, maximum 12 predictions, and unknown price/version. No command in this real-cohort group runs inference, including after photos become ready.
+
+Photograph each actual object now, record the capture date and conditions, and visually confirm it is a camera image rather than a browser/app screenshot. Prefer exporting an unmodified JPEG from iPhone Photos. Original-camera confirmation is a human attestation: EXIF and file extensions alone cannot prove provenance or freshness. Record visible mirror/tabletop reflections honestly; do not silently pre-crop the supplied original. Stage files in `inputs/<object-id>/` or provide an absolute path, then import each one:
+
+```bash
+PYTHONPATH=. .venv312/bin/python -m evaluation.cli import-real \
+  --cohort ../../evaluation-data/real-world-six --case opaque-bottle \
+  --image /path/to/fresh-original.jpg --capture-date 2026-10-18 \
+  --lighting 'diffuse window light' --background 'matte light tabletop' \
+  --reflections 'none visible' --transparency 'opaque' \
+  --confirm-original-camera-photo
+```
+
+Repeat for the other five IDs in `cohort.json`, recording actual conditions (or explicit `unknown`). Optional `--dimensions-json` contains independently measured millimeter dimensions; never derive physical scale from an uncalibrated mesh. Bytes are copied unchanged into `dataset/<id>/original.<extension>`, with resolution, EXIF orientation, SHA-256, capture date, category, and conditions recorded consistently in both manifests. Existing ready originals cannot be overwritten. Synthetic images and screenshots cannot be marked as ready by reusing those evidence kinds; do not falsely attest one as a photo.
+
+```bash
+DRAGONFLY_EVAL_GRABCUT=1 PYTHONPATH=. .venv312/bin/python -m evaluation.cli prepare-real \
+  --cohort ../../evaluation-data/real-world-six --output ../../evaluation-runs/real-world-six
+```
+
+Preparation stops until all six originals are ready. It then reuses the serial evaluation runner: A calls unchanged production preparation; B receives that same A input and either isolates it or falls back to its exact bytes. Images, candidate masks/previews, input hashes, confidence/fallback reasons, metrics, durations, and RSS are saved for each arm. Both arms in a later paid pair use one exact provider model/version and the same image-only production parameters. Set no different model, version, seed, mesh settings, or preparation mode between arms. Rendering/mesh validity does not establish fidelity.
+
+The exact production version and verified unit price must be supplied before a meaningful dollar estimate. `plan-real --model-version 'owner/model:EXACT_VERSION' --estimated-cost-per-prediction PRICE` records a maximum estimate of `12 * PRICE`; omitted values remain unknown. After all inputs are prepared, the existing `pair` dry run against `.../real-world-six/dataset` computes unique uncached requests. Fallback or caching may reduce requests below 12. Price examples elsewhere are illustrative, not a price quote. Do not execute any paid flags until the user explicitly authorizes the actual plan.
+
+Human review must record recognizable shape/silhouette; missing, mirrored or duplicate geometry; handles/openings/edges/small details; reflections/background geometry; front/side/back correspondence; dimensions and scale uncertainty. Automated review records annotated mask measurements when supplied, watertightness/topology/non-manifold geometry, bounds in model units, timing, peak RSS, provider prediction IDs/status/version and actual billed cost only when known. Segmentation confidence alone can never produce an improved verdict. The existing `review` command stores reviewer/date, per-arm fidelity, artifacts, notes, and improved/regressed/mixed/inconclusive outcomes.
+
+### General Dataset Imports
+
 Export the actual photo from iPhone Photos, not a screenshot of DragonFly. JPEG/PNG with EXIF orientation are supported by existing Pillow preprocessing. HEIC requires a decoder not bundled by this tool; export as JPEG before import. Imported bytes and EXIF are preserved, and orientation is corrected only on prepared copies. State unknown lighting, background, or dimensions as unknown/null; do not guess them.
 
 ```bash
