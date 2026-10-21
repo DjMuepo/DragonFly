@@ -7,7 +7,6 @@ const EXAMPLES = [
   'Make it 20% larger',
   'Make it 100 mm tall',
   'Rotate 90 degrees around z',
-  'Move 10 mm right',
   'Add a 5 mm base',
   'Make it blue',
 ];
@@ -95,8 +94,8 @@ export function AiMeshEditor() {
 
   return (
     <View style={styles.panel}>
-      <Text style={styles.title}>Edit with AI guidance</Text>
-      <Text style={styles.help}>Describe a measurable change. Geometry edits alter exports; color changes are visual only.</Text>
+      <Text style={styles.title}>Edit model</Text>
+      <Text style={styles.help}>Supported size, rotation and appearance changes are interpreted deterministically. Calibrate physical scale before millimeter edits; color changes are visual only.</Text>
       <View style={styles.scalePanel}>
         <Text style={styles.scaleTitle}>Dimensions &amp; Scale</Text>
         <Text style={revision?.scaleStatus === 'calibrated' ? styles.calibrated : styles.estimated}>
@@ -154,7 +153,7 @@ export function AiMeshEditor() {
           {revision.validation.warnings.map((warning) => <Text key={warning} style={styles.warning}>{warning}</Text>)}
         </View>
       ) : null}
-      <Text style={styles.capability}>Feature edits: add/remove base. Holes, handles, and freeform parts are reported as unsupported.</Text>
+      <Text style={styles.capability}>Deterministic features include through-holes, hollowing, cuts, handles and bases. Fillets, chamfers and threads are not implemented.</Text>
       <View style={styles.exports}>
         <Pressable style={styles.exportButton} onPress={() => void openExport(revision?.url || generatedModelUrl)}><Text style={styles.exportText}>Export GLB</Text></Pressable>
         {revision?.stlUrl ? <Pressable style={styles.exportButton} onPress={() => void openExport(revision.stlUrl)}><Text style={styles.exportText}>Export STL</Text></Pressable> : null}

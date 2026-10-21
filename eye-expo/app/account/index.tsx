@@ -14,12 +14,20 @@ export default function AccountScreen() {
   const [name, setName] = React.useState(userProfile?.name || '');
   const [myDesigns, setMyDesigns] = React.useState<any[]>([]);
   const [error, setError] = React.useState<string | null>(null);
+  const [designsError, setDesignsError] = React.useState<string | null>(null);
 
   const loadMyDesigns = async (token: string) => {
     try {
       const res = await listMyDesigns(token);
-      if (res.ok) setMyDesigns(res.designs || []);
-    } catch {}
+      if (res.ok) {
+        setMyDesigns(res.designs || []);
+        setDesignsError(null);
+      } else {
+        setDesignsError(res.error || 'The account service did not return saved projects.');
+      }
+    } catch (err: any) {
+      setDesignsError(err?.message || 'The account service is unavailable.');
+    }
   };
 
   React.useEffect(() => {
@@ -33,8 +41,8 @@ export default function AccountScreen() {
       if (!res.ok) return setError(res.error || 'Signup failed');
       setAuth(res.token, res.user);
       loadMyDesigns(res.token);
-    } catch {
-      setError('Signup failed');
+    } catch (err: any) {
+      setError(err?.message || 'Account creation service is unavailable.');
     }
   };
 
@@ -45,8 +53,8 @@ export default function AccountScreen() {
       if (!res.ok) return setError(res.error || 'Login failed');
       setAuth(res.token, res.user);
       loadMyDesigns(res.token);
-    } catch {
-      setError('Login failed');
+    } catch (err: any) {
+      setError(err?.message || 'Login service is unavailable.');
     }
   };
 
@@ -66,6 +74,7 @@ export default function AccountScreen() {
             renderItem={({ item }: any) => <Text style={styles.row}>• {item.title} ({item.family})</Text>}
             ListEmptyComponent={<Text style={styles.row}>No published designs yet.</Text>}
           />
+          {designsError ? <Text accessibilityRole="alert" style={styles.error}>{designsError}</Text> : null}
         </View>
       ) : (
         <View style={styles.panel}>

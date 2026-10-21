@@ -3,30 +3,41 @@ import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator } from 
 import { useRouter } from 'expo-router';
 import { useSnapStore } from '../../src/lib/useSnapStore';
 import { editGeometry, preparePrint } from '../../src/lib/geometryApi';
+import { calibrateGeometry } from '../../src/lib/geometryApi';
 
 const QUICK_PROMPTS = [
-  'make it taller and printable',
-  'make it thinner',
-  'add a stronger base',
-  'make a protective case version',
+  'Make it 20% larger',
+  'Rotate 90 degrees around z',
+  'Change its color to blue',
 ];
 
 export default function AiEditScreen() {
   const router = useRouter();
   const targetLabel = useSnapStore((s) => s.targetLabel);
   const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
-  const setGeneratedModel = useSnapStore((s) => s.setGeneratedModel);
-  const [prompt, setPrompt] = useState('make it printable and stronger');
+  const generatedModelName = useSnapStore((s) => s.generatedModelName);
+  const generatedStlUrl = useSnapStore((s) => s.generatedStlUrl);
+  const generatedProviderKind = useSnapStore((s) => s.generatedProviderKind);
+  const modelHistory = useSnapStore((s) => s.modelHistory);
+  const applyModelRevision = useSnapStore((s) => s.applyModelRevision);
+  const initializeModelHistory = useSnapStore((s) => s.initializeModelHistory);
+  const [prompt, setPrompt] = useState('Make it 20% larger');
+  const [measurement, setMeasurement] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const runEdit = async (nextPrompt = prompt) => {
+    if (!generatedModelUrl) {
+      setMessage('Generate a model before editing it.');
+      return;
+    }
     try {
       setBusy(true);
       setMessage('Building edited model...');
       const result = await editGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, prompt: nextPrompt });
-      setGeneratedModel(result.model_url, result.model_name);
-      setMessage(`Updated with ${result.engine}.`);
+      if (!modelHistory.length) initializeModelHistory({ url: generatedModelUrl, name: generatedModelName || 'original.glb', stlUrl: generatedStlUrl, providerKind: generatedProviderKind || 'ai', summary: 'Original reconstructed model', scaleStatus: 'unknown' });
+      applyModelRevision({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, changeKind: result.change_kind, summary: result.edit_summary || result.notes, scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
+      setMessage(result.edit_summary || `Updated with ${result.engine}.`);
       router.push('/snap/viewer');
     } catch (err: any) {
       setMessage(err?.message || 'AI edit failed. Confirm backend port 8010 is public/running.');
@@ -36,6 +47,10 @@ export default function AiEditScreen() {
   };
 
   const runPrintPrep = async () => {
+    if (!generatedModelUrl) {
+      setMessage('Generate a model before requesting print preparation.');
+      return;
+    }
     try {
       setBusy(true);
       const result = await preparePrint({ modelUrl: generatedModelUrl, material: 'PLA', infillPercent: 20 });
@@ -47,17 +62,42 @@ export default function AiEditScreen() {
     }
   };
 
+  const calibrateFromMeasurement = async () => {
+    if (!generatedModelUrl) {
+      setMessage('Generate a model before calibrating it.');
+      return;
+    }
+    if (!measurement.trim()) {
+      setMessage('Enter one known physical measurement before calibration.');
+      return;
+    }
+    try {
+      setBusy(true);
+      setMessage('Calibrating physical scale...');
+      const result = await calibrateGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, measurement: measurement.trim() });
+      if (!modelHistory.length) initializeModelHistory({ url: generatedModelUrl, name: generatedModelName || 'original.glb', stlUrl: generatedStlUrl, providerKind: generatedProviderKind || 'ai', summary: 'Original reconstructed model', scaleStatus: 'unknown' });
+      applyModelRevision({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, changeKind: 'geometry', summary: result.edit_summary || result.notes, scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
+      setMessage(result.edit_summary || 'Physical scale calibrated.');
+    } catch (err: any) {
+      setMessage(err?.message || 'Calibration failed. Check the known measurement and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>AI Model Edit</Text>
-      <Text style={styles.subtitle}>Tell Eye Platform how to change the model.</Text>
+      <Text style={styles.title}>Model Edit</Text>
+      <Text style={styles.subtitle}>Describe a supported deterministic geometry or appearance change.</Text>
+      <TextInput style={styles.input} value={measurement} onChangeText={setMeasurement} placeholder="Enter a known measurement, e.g. 100 mm tall" placeholderTextColor="#7c8499" editable={!busy} accessibilityLabel="Known physical measurement" />
+      <Pressable style={styles.secondaryButton} onPress={() => void calibrateFromMeasurement()} disabled={busy || !measurement.trim()}><Text style={styles.buttonText}>Calibrate Model</Text></Pressable>
       <TextInput style={styles.input} value={prompt} onChangeText={setPrompt} multiline placeholder="Example: make it taller and add a base" placeholderTextColor="#7c8499" />
       <View style={styles.quickGrid}>{QUICK_PROMPTS.map((item) => <Pressable key={item} style={styles.quickButton} onPress={() => { setPrompt(item); runEdit(item); }}><Text style={styles.quickText}>{item}</Text></Pressable>)}</View>
       {message ? <Text style={styles.message}>{message}</Text> : null}
       {busy ? <ActivityIndicator size="large" /> : null}
       <View style={styles.actions}>
         <Pressable style={styles.primaryButton} onPress={() => runEdit()} disabled={busy}><Text style={styles.buttonText}>Apply AI Edit</Text></Pressable>
-        <Pressable style={styles.secondaryButton} onPress={runPrintPrep} disabled={busy}><Text style={styles.buttonText}>Prepare for Print</Text></Pressable>
+        <Pressable style={styles.secondaryButton} onPress={runPrintPrep} disabled={busy}><Text style={styles.buttonText}>Check print readiness</Text></Pressable>
         <Pressable style={styles.darkButton} onPress={() => router.push('/snap/viewer')}><Text style={styles.buttonText}>Back to Viewer</Text></Pressable>
       </View>
     </View>

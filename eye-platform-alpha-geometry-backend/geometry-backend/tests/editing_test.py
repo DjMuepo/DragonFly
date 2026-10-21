@@ -86,6 +86,9 @@ else:
 fixture = MODELS_DIR / "editing-test-source.glb"
 source.export(fixture)
 with TestClient(app) as client:
+    print_prep = client.post("/v1/geometry/prepare-print", json={"model_url": "http://testserver/v1/geometry/models/editing-test-source.glb"})
+    assert print_prep.status_code == 501
+    assert "No printability check" in print_prep.json()["detail"]
     capabilities = client.get("/v1/geometry/edit/capabilities").json()
     assert capabilities["features"] == ["through_hole", "hollow_box", "cut_box", "base_box", "handle_loop"]
     generated = client.post("/v1/geometry/generate", json={"label": "bottle"})

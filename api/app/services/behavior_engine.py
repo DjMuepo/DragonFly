@@ -87,18 +87,12 @@ def recover_session(payload):
     }
 
 def record_print_success(payload):
-    data = _load()
-    rec = {
-        "title": payload.get("title") or "Successful Print",
-        "message": "You just created something real. Want to create more... or even earn from your designs?",
-        "actions": ["continue_creating", "upgrade_to_pro", "learn_how_to_earn"],
-        "printed_at": int(time.time()),
-        "printer_id": payload.get("printer_id"),
-        "rating": payload.get("rating"),
+    return {
+        "ok": False,
+        "status": "not_integrated",
+        "event_recorded": False,
+        "message": "Print completion cannot be verified because no live printer job integration is connected.",
     }
-    _event(data, "print_success", rec)
-    _save(data)
-    return {"ok": True, "success_prompt": rec}
 
 def get_events(limit=100):
     return (_load().get("events") or [])[:limit]

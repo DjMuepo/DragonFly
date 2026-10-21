@@ -1,33 +1,15 @@
 import * as React from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
-import { checkAutoSaveSubscription } from '../src/lib/api';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 
 export default function AutoSaveScreen() {
-  const [paid, setPaid] = React.useState(false);
-  const [status, setStatus] = React.useState<any>(null);
-
-  const check = async (nextPaid: boolean) => {
-    try { setStatus(await checkAutoSaveSubscription({ is_paid: nextPaid })); } catch (e) { console.warn(e); }
-  };
-
-  React.useEffect(() => { check(paid); }, [paid]);
-
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding:16, gap:12 }}>
-      <Text style={styles.title}>Premium Auto-Save</Text>
-      <Text style={styles.subtitle}>Reserve automatic Object DNA save behavior for subscribed accounts.</Text>
+      <Text style={styles.title}>Auto-Save Unavailable</Text>
+      <Text style={styles.subtitle}>Billing entitlements and durable project auto-save are not connected in this deployment. No subscription state has been changed.</Text>
 
       <View style={styles.panel}>
-        <Text style={styles.meta}>Subscription: {paid ? 'Pro' : 'Free'}</Text>
-        <Pressable style={styles.secondary} onPress={() => setPaid(!paid)}>
-          <Text style={styles.secondaryText}>{paid ? 'Switch to Free' : 'Switch to Pro'}</Text>
-        </Pressable>
-        {status ? (
-          <>
-            <Text style={styles.meta}>Allowed: {status.allowed ? 'Yes' : 'No'}</Text>
-            <Text style={styles.body}>{status.message || ''}</Text>
-          </>
-        ) : null}
+        <Text style={styles.meta}>Plan: Not verified</Text>
+        <Text style={styles.body}>You can continue using the core scan and local model history. Permanent cloud project storage is not available here.</Text>
       </View>
 
       <View style={styles.panel}>
@@ -49,6 +31,4 @@ const styles = StyleSheet.create({
   sectionTitle:{ color:'#fff', fontSize:16, fontWeight:'800' },
   meta:{ color:'#bdbdbd', fontSize:12, lineHeight:18 },
   body:{ color:'#fff', lineHeight:20 },
-  secondary:{ borderRadius:14, paddingVertical:12, paddingHorizontal:12, alignItems:'center', borderWidth:1, borderColor:'#2a2a2a' },
-  secondaryText:{ color:'#fff', fontWeight:'800' },
 });

@@ -193,8 +193,10 @@ def _run_generation(job_id: str, base_url: str, label: str, confidence: float, i
         if image_path is None:
             generated = ProceduralProvider().generate(request, MODELS_DIR)
         else:
+            if prepared_path is None or preprocessing is None:
+                raise RuntimeError("Image preprocessing did not produce a provider input.")
             active_stage = "replicate_reconstruction"
-            _log_reconstruction_event(job_id, "provider_request", provider=provider_name, processed_dimensions=prep_report.output_dimensions, provider_kind="ai")
+            _log_reconstruction_event(job_id, "provider_request", provider=provider_name, processed_dimensions=preprocessing["output_dimensions"], provider_kind="ai")
             job.update(progress=35, stage="reconstructing", stage_detail="Generating mesh with the selected AI provider.")
             generated = reconstruct(
                 request,
@@ -467,16 +469,10 @@ def edit_capabilities():
 
 @app.post("/v1/geometry/prepare-print")
 def prepare_print(payload: PrintPrepRequest):
-    return {
-        "ok": True,
-        "status": "print-check-complete",
-        "material": payload.material,
-        "infill_percent": payload.infill_percent,
-        "estimated_weight_g": 42,
-        "estimated_print_time_min": 95,
-        "checks": ["mesh centered", "scale normalized", "non-manifold repair queued", "wall thickness check queued"],
-        "notes": "Alpha print prep estimate. Replace with slicer integration in next batch.",
-    }
+    raise HTTPException(
+        status_code=501,
+        detail="Slicer-based print preparation is not integrated. No printability check, material estimate or print time was produced.",
+    )
 
 @app.get("/v1/geometry/jobs/{job_id}")
 def job_status(job_id: str):

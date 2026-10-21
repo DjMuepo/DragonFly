@@ -497,7 +497,13 @@ export async function exportDraftStl(parametricDraft: any): Promise<VisionExport
     body: JSON.stringify({ parametric_draft: parametricDraft }),
   });
   if (!res.ok) throw new Error(`vision export stl failed ${res.status}`);
-  return await res.json();
+  const result = (await res.json()) as VisionExportStlResponse;
+  return {
+    ...result,
+    download_url: /^https?:\/\//i.test(result.download_url)
+      ? result.download_url
+      : `${API_BASE}${result.download_url.startsWith('/') ? result.download_url : `/${result.download_url}`}`,
+  };
 }
 
 

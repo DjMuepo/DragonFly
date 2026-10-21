@@ -1,18 +1,20 @@
 import * as React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSnapStore } from '../../src/lib/useSnapStore';
 import { logEvent, exportDraftStl, analyzePrintability, publishDesign, hostDesignPreview } from '../../src/lib/api';
 
 export default function PrintReady() {
   const router = useRouter();
-  const novelty = useSnapStore((s) => s.novelty);
   const sessionId = useSnapStore((s) => (s as any).sessionId);
   const selectedMatchId = useSnapStore((s) => s.selectedMatchId);
   const structuralReport = useSnapStore((s) => (s as any).structuralReport);
   const visionReconstruct = useSnapStore((s) => (s as any).visionReconstruct);
   const [exportState, setExportState] = React.useState<any>(null);
   const [printability, setPrintability] = React.useState<any>(null);
+  const [printabilityError, setPrintabilityError] = React.useState<string | null>(null);
+  const [exportError, setExportError] = React.useState<string | null>(null);
+  const [shareError, setShareError] = React.useState<string | null>(null);
   const setSharedDesign = useSnapStore((s:any) => s.setSharedDesign);
   const userProfile = useSnapStore((s:any) => s.userProfile);
   const authToken = useSnapStore((s:any) => s.authToken);
@@ -25,28 +27,34 @@ export default function PrintReady() {
         if (visionReconstruct?.parametric_draft) {
           const r = await analyzePrintability(visionReconstruct.parametric_draft);
           setPrintability(r);
+          setPrintabilityError(null);
+        } else {
+          setPrintabilityError('No parametric draft is available for this analyzer. Reconstructed-mesh slicer validation is not integrated.');
         }
       } catch (e) {
         console.warn('printability failed', e);
+        setPrintability(null);
+        setPrintabilityError('Printability analysis is unavailable. No print-readiness result was produced.');
       }
     })();
   }, [visionReconstruct?.parametric_draft]);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Print Ready</Text>
-      <Text style={styles.subtitle}>We’ll run basic checks and export STL/3MF.</Text>
+      <Text style={styles.title}>Print Preparation Preview</Text>
+      <Text style={styles.subtitle}>Draft-only heuristic checks; slicer validation, print estimates and 3MF export are not integrated.</Text>
 
       <View style={styles.panel}>
-        <Text style={styles.row}><Text style={styles.label}>Print confidence: </Text><Text style={styles.value}>{printability ? `${printability.print_confidence}% (${printability.band})` : (novelty === 'COMMON' ? 'High' : novelty === 'UNIQUE' ? 'Medium' : 'Med/High')}</Text></Text>
-        <Text style={styles.row}><Text style={styles.label}>Est. time: </Text><Text style={styles.value}>—</Text></Text>
-        <Text style={styles.row}><Text style={styles.label}>Material: </Text><Text style={styles.value}>{printability?.recommended_material || 'PLA (default)'}</Text></Text>
+        <Text style={styles.row}><Text style={styles.label}>Draft heuristic: </Text><Text style={styles.value}>{printability ? `${printability.print_confidence}% (${printability.band})` : 'Unavailable'}</Text></Text>
+        <Text style={styles.row}><Text style={styles.label}>Print time: </Text><Text style={styles.value}>Not measured</Text></Text>
+        {printability?.recommended_material ? <Text style={styles.row}><Text style={styles.label}>Suggested material: </Text><Text style={styles.value}>{printability.recommended_material}</Text></Text> : null}
+        {printabilityError ? <Text accessibilityRole="alert" style={styles.error}>{printabilityError}</Text> : null}
       </View>
 
 
       <View style={styles.panel}>
         <Text style={[styles.row, { fontWeight: '800' }]}>Review & Grade</Text>
-        <Text style={styles.subtitle}>Help the AI learn what works. (30 seconds)</Text>
+            <Text style={styles.subtitle}>Optional self-reported feedback; no physical print is inferred.</Text>
 
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
           <Pressable
@@ -63,19 +71,19 @@ export default function PrintReady() {
           </Pressable>
         </View>
 
-        <Text style={[styles.row, { marginTop: 12 }]}><Text style={styles.label}>Print outcome:</Text></Text>
+        <Text style={[styles.row, { marginTop: 12 }]}><Text style={styles.label}>Self-reported print outcome:</Text></Text>
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
           <Pressable
             style={[styles.secondary, { flex: 1, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0b0b0b' }]}
-            onPress={() => logEvent({ event: 'print_outcome_success', session_id: sessionId, model_id: selectedMatchId ?? undefined, payload: { novelty, confidence: structuralReport?.confidence } })}
+            onPress={() => logEvent({ event: 'print_outcome_success', session_id: sessionId, model_id: selectedMatchId ?? undefined, payload: { confidence: structuralReport?.confidence } })}
           >
-            <Text style={styles.secondaryText}>✅ Success</Text>
+            <Text style={styles.secondaryText}>I printed successfully</Text>
           </Pressable>
           <Pressable
             style={[styles.secondary, { flex: 1, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0b0b0b' }]}
-            onPress={() => logEvent({ event: 'print_outcome_fail', session_id: sessionId, model_id: selectedMatchId ?? undefined, payload: { novelty, confidence: structuralReport?.confidence } })}
+            onPress={() => logEvent({ event: 'print_outcome_fail', session_id: sessionId, model_id: selectedMatchId ?? undefined, payload: { confidence: structuralReport?.confidence } })}
           >
-            <Text style={styles.secondaryText}>⚠️ Failed</Text>
+            <Text style={styles.secondaryText}>My print failed</Text>
           </Pressable>
         </View>
 
@@ -96,16 +104,18 @@ export default function PrintReady() {
 
       <View style={styles.panel}>
         <Text style={[styles.row, { fontWeight: '800' }]}>STL Export</Text>
-        <Text style={styles.subtitle}>Generate a printable STL from the current parametric draft.</Text>
+        <Text style={styles.subtitle}>Export a parametric draft STL. This is separate from any reconstructed GLB.</Text>
         <Pressable
           style={[styles.primary, { marginTop: 10 }]}
           onPress={async () => {
             try {
               const res = await exportDraftStl(visionReconstruct?.parametric_draft);
               setExportState(res);
+              setExportError(null);
               logEvent({ event: 'stl_export', session_id: sessionId, model_id: selectedMatchId ?? undefined, payload: { family: visionReconstruct?.family, watertight: res?.meta?.is_watertight, faces: res?.meta?.faces } });
             } catch (e) {
               console.warn('stl export failed', e);
+              setExportError('STL export is unavailable from this service. No file was created.');
             }
           }}
         >
@@ -114,6 +124,8 @@ export default function PrintReady() {
         {exportState ? <Text style={[styles.row, { marginTop: 10 }]}><Text style={styles.label}>Watertight: </Text><Text style={styles.value}>{exportState.meta?.is_watertight ? 'Yes' : 'Needs review'}</Text></Text> : null}
         {exportState ? <Text style={styles.row}><Text style={styles.label}>Faces: </Text><Text style={styles.value}>{exportState.meta?.faces}</Text></Text> : null}
         {exportState ? <Text style={styles.row}><Text style={styles.label}>STL URL: </Text><Text style={styles.value}>{exportState.download_url}</Text></Text> : null}
+        {exportError ? <Text accessibilityRole="alert" style={styles.error}>{exportError}</Text> : null}
+        {exportState?.download_url ? <Pressable style={[styles.secondary, { marginTop: 8 }]} onPress={async () => { try { await Linking.openURL(exportState.download_url); } catch { setExportError('Could not open the returned STL URL.'); } }}><Text style={styles.secondaryText}>Download STL</Text></Pressable> : null}
       </View>
 
       <View style={styles.panel}>
@@ -131,6 +143,7 @@ export default function PrintReady() {
           style={[styles.primary, { marginTop: 10 }]}
           onPress={async () => {
             try {
+              setShareError(null);
               const res = await publishDesign({
                 title: `${visionReconstruct?.family || 'Design'} Concept`,
                 description: `Shared from the AI-guided design workflow.`,
@@ -149,11 +162,13 @@ export default function PrintReady() {
               logEvent({ event: 'design_publish', session_id: sessionId, payload: { slug: res.design?.slug, family: visionReconstruct?.family } });
             } catch (e) {
               console.warn('design publish failed', e);
+              setShareError('Sharing is unavailable. No design was published.');
             }
           }}
         >
           <Text style={styles.primaryText}>Publish design</Text>
         </Pressable>
+        {shareError ? <Text accessibilityRole="alert" style={styles.error}>{shareError}</Text> : null}
         {shareState ? <Text style={[styles.row, { marginTop: 10 }]}><Text style={styles.label}>Share page: </Text><Text style={styles.value}>{shareState.share_url}</Text></Text> : null}
         {shareState ? <Text style={styles.row}><Text style={styles.label}>App link: </Text><Text style={styles.value}>{shareState.app_deep_link}</Text></Text> : null}
         {shareState?.design?.preview_url ? <Text style={styles.row}><Text style={styles.label}>Preview URL: </Text><Text style={styles.value}>{shareState.design.preview_url}</Text></Text> : null}
@@ -161,10 +176,6 @@ export default function PrintReady() {
       </View>
 
       <View style={styles.actions}>
-        <Pressable style={styles.primary} onPress={() => alert('Export placeholder: wire this to backend download URL.')}
-        >
-          <Text style={styles.primaryText}>Export STL/3MF</Text>
-        </Pressable>
         <Pressable style={styles.secondary} onPress={() => router.replace('/home')}>
           <Text style={styles.secondaryText}>Done</Text>
         </Pressable>
@@ -177,6 +188,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000', padding: 16, gap: 12 },
   title: { color: '#fff', fontSize: 24, fontWeight: '800' },
   subtitle: { color: '#bdbdbd', fontSize: 13, lineHeight: 18 },
+  error: { color: '#ffb1a8', fontSize: 13, lineHeight: 18 },
   panel: {
     borderWidth: 1,
     borderColor: '#1f1f1f',

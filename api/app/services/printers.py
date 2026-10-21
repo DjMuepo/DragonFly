@@ -45,11 +45,13 @@ def find_nearby_printers(lat: float, lon: float, material: str | None = None) ->
     return out[:8]
 
 def submit_print_job(printer_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    printer = next((p for p in _load_nodes() if p["id"] == printer_id), None)
-    if not printer:
-        raise ValueError("printer not found")
-    request_id = f"job_{printer_id}_{int(time.time())}"
-    return {"ok": True, "request_id": request_id, "printer_id": printer_id, "printer_name": printer["name"], "status": "submitted", "eta": "same day" if printer.get("same_day") and printer.get("queue_depth", 9) <= 3 else "1-3 days", "note": "Foundation flow only. Real printer network integration comes later.", "payload_summary": {"material": payload.get("material") or "PLA", "family": payload.get("family") or "object"}}
+    return {
+        "ok": False,
+        "status": "not_integrated",
+        "printer_id": printer_id,
+        "submitted": False,
+        "note": "No live printer-partner integration is connected; no print request was submitted.",
+    }
 
 def list_nodes() -> List[Dict[str, Any]]:
     return _load_nodes()

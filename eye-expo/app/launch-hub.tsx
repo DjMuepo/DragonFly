@@ -7,7 +7,7 @@ export default function LaunchHubScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding:16, gap:12 }}>
       <Text style={styles.title}>v66 Launch Hub</Text>
-      <Text style={styles.subtitle}>Production-ready launch surfaces for invite access, onboarding, sharing, monetization, and admin control.</Text>
+      <Text style={styles.subtitle}>Preview tools. Account billing, persistent sharing and live admin services may be unavailable in this deployment.</Text>
 
       <View style={styles.panel}>
         <Pressable style={styles.primary} onPress={() => router.push('/invite')}><Text style={styles.primaryText}>Invite Gate</Text></Pressable>

@@ -3,15 +3,11 @@ import { View, Text, StyleSheet, Pressable, ActivityIndicator, FlatList } from '
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useSnapStore } from '../../src/lib/useSnapStore';
-import { findNearbyPrinters, submitPrinterJob } from '../../src/lib/api';
+import { findNearbyPrinters } from '../../src/lib/api';
 
 export default function NearbyPrinters() {
   const router = useRouter();
   const visionReconstruct = useSnapStore((s:any) => s.visionReconstruct);
-  const sessionId = useSnapStore((s:any) => s.sessionId);
-  const setSelectedPrinter = useSnapStore((s:any) => s.setSelectedPrinter);
-  const setPrintRequest = useSnapStore((s:any) => s.setPrintRequest);
-  const printRequest = useSnapStore((s:any) => s.printRequest);
   const [loading, setLoading] = React.useState(true);
   const [printers, setPrinters] = React.useState<any[]>([]);
   const [error, setError] = React.useState<string | null>(null);
@@ -21,13 +17,14 @@ export default function NearbyPrinters() {
       try {
         setLoading(true);
         const perm = await Location.requestForegroundPermissionsAsync();
-        let lat = 34.0522;
-        let lon = -118.2437;
-        if (perm.granted) {
-          const loc = await Location.getCurrentPositionAsync({});
-          lat = loc.coords.latitude;
-          lon = loc.coords.longitude;
+        if (!perm.granted) {
+          setError('Location permission is required. No nearby search was performed.');
+          setPrinters([]);
+          return;
         }
+        const loc = await Location.getCurrentPositionAsync({});
+        const lat = loc.coords.latitude;
+        const lon = loc.coords.longitude;
         const material = visionReconstruct?.parametric_draft?.recommended_material || 'PLA';
         const res = await findNearbyPrinters(lat, lon, material);
         setPrinters(res.printers || []);
@@ -40,39 +37,13 @@ export default function NearbyPrinters() {
     })();
   }, []);
 
-  const sendToPrinter = async (printer: any) => {
-    try {
-      const req = await submitPrinterJob({
-        printer_id: printer.id,
-        session_id: sessionId,
-        family: visionReconstruct?.family,
-        material: visionReconstruct?.parametric_draft?.recommended_material || 'PLA',
-      });
-      setSelectedPrinter(printer);
-      setPrintRequest(req);
-    } catch (e) {
-      console.warn(e);
-      setError('Could not submit printer request.');
-    }
-  };
-
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Nearby Printers</Text>
-      <Text style={styles.subtitle}>Find a printer close to you that can print this design.</Text>
+      <Text style={styles.subtitle}>Sample printer records for interface preview only. Live locations, availability and ordering are not integrated.</Text>
 
       {loading ? <ActivityIndicator /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-
-      {printRequest ? (
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Print request sent</Text>
-          <Text style={styles.row}><Text style={styles.label}>Printer: </Text><Text style={styles.value}>{printRequest.printer_name}</Text></Text>
-          <Text style={styles.row}><Text style={styles.label}>Status: </Text><Text style={styles.value}>{printRequest.status}</Text></Text>
-          <Text style={styles.row}><Text style={styles.label}>ETA: </Text><Text style={styles.value}>{printRequest.eta}</Text></Text>
-          <Text style={styles.note}>{printRequest.note}</Text>
-        </View>
-      ) : null}
 
       <FlatList
         data={printers}
@@ -80,12 +51,10 @@ export default function NearbyPrinters() {
         renderItem={({ item }: any) => (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{item.name}</Text>
-            <Text style={styles.cardMeta}>{item.distance_miles} miles away • {item.same_day ? 'Same day available' : 'Standard turnaround'}</Text>
+            <Text style={styles.cardMeta}>{item.distance_miles} miles • sample distance, not live location</Text>
             <Text style={styles.cardMeta}>Materials: {item.materials.join(', ')}</Text>
             <Text style={styles.cardMeta}>Build volume: {item.max_x}×{item.max_y}×{item.max_z} mm</Text>
-            <Pressable style={styles.primary} onPress={() => sendToPrinter(item)}>
-              <Text style={styles.primaryText}>Send design</Text>
-            </Pressable>
+            <Text style={styles.note}>Ordering is unavailable until a real printer partner is connected.</Text>
           </View>
         )}
         contentContainerStyle={{ gap: 10, paddingBottom: 20 }}
@@ -103,8 +72,6 @@ const styles = StyleSheet.create({
   title:{ color:'#fff', fontSize:24, fontWeight:'800' },
   subtitle:{ color:'#bdbdbd', fontSize:13, lineHeight:18 },
   error:{ color:'#ff7b7b' },
-  panel:{ borderWidth:1, borderColor:'#1f1f1f', backgroundColor:'#0b0b0b', borderRadius:18, padding:14, gap:6 },
-  panelTitle:{ color:'#fff', fontSize:16, fontWeight:'800' },
   row:{ color:'#bdbdbd' },
   label:{ color:'#8f8f8f' },
   value:{ color:'#fff', fontWeight:'700' },
