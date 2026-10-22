@@ -20,3 +20,6 @@ eye-platform-alpha-geometry-backend/geometry-backend/reconstruction_debug/
 
 # macOS
 .DS_Store
+
+# Core integration runtime data
+eye-platform-alpha-geometry-backend/geometry-backend/data/
