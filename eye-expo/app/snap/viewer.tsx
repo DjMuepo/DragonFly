@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable, Platform, Linking, ScrollView } from
 import { useRouter } from 'expo-router';
 import { useSnapStore } from '../../src/lib/useSnapStore';
 import { AiMeshEditor } from '../../src/components/AiMeshEditor';
+import { ProjectPanel } from '../../src/components/ProjectPanel';
 
 function WebGlbViewer({ url }: { url: string }) {
   const viewerRef = useRef<any>(null);
@@ -60,6 +61,10 @@ export default function ViewerScreen() {
   const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
   const generatedModelName = useSnapStore((s) => s.generatedModelName);
   const modelDownloadUrl = useSnapStore((s) => s.modelDownloadUrl);
+  const modelHistory = useSnapStore((s) => s.modelHistory);
+  const modelHistoryIndex = useSnapStore((s) => s.modelHistoryIndex);
+  const generatedStlUrl = useSnapStore((s) => s.generatedStlUrl);
+  const unavailableReason = modelHistory[modelHistoryIndex]?.unavailableReason;
   const modelUrl = generatedModelUrl?.startsWith('http') ? generatedModelUrl : undefined;
   const downloadUrl = modelDownloadUrl?.startsWith('http') ? modelDownloadUrl : modelUrl;
 
@@ -72,9 +77,12 @@ export default function ViewerScreen() {
       </View>
       <Text style={styles.label}>{targetLabel || 'Object'} {modelUrl ? '3D model' : 'model unavailable'}</Text>
       <Text style={styles.note}>{modelUrl ? 'Drag to rotate. Pinch or scroll to zoom.' : 'Return to generation and retry.'}</Text>
-      {modelUrl ? <AiMeshEditor /> : null}
+      {unavailableReason ? <Text style={styles.note}>This revision cannot be opened: {unavailableReason}. Use Undo or Reset to return to an available revision.</Text> : null}
+      {modelUrl || modelHistory.length ? <AiMeshEditor /> : null}
+      <ProjectPanel />
       <View style={styles.actions}>
         {downloadUrl ? <Pressable style={styles.primaryButton} onPress={() => Linking.openURL(downloadUrl)}><Text style={styles.buttonText}>Open / Download GLB</Text></Pressable> : null}
+        {generatedStlUrl && modelUrl ? <Pressable style={styles.secondaryButton} onPress={() => Linking.openURL(generatedStlUrl)}><Text style={styles.buttonText}>Download STL (mm)</Text></Pressable> : null}
         {!modelUrl ? <Pressable style={styles.primaryButton} onPress={() => router.replace('/snap/reconstruct')}><Text style={styles.buttonText}>Retry Generation</Text></Pressable> : null}
         <Pressable style={styles.primaryButton} onPress={() => router.push('/snap/result')}><Text style={styles.buttonText}>Back to Result</Text></Pressable>
       </View>

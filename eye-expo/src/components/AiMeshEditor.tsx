@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { calibrateGeometry, editGeometry } from '../lib/geometryApi';
+import { revisionFromResult } from '../lib/revisionFromResult';
 import { useSnapStore } from '../lib/useSnapStore';
 
 const EXAMPLES = [
@@ -14,6 +15,7 @@ const EXAMPLES = [
 export function AiMeshEditor() {
   const targetLabel = useSnapStore((state) => state.targetLabel);
   const generatedModelUrl = useSnapStore((state) => state.generatedModelUrl);
+  const projectId = useSnapStore((state) => state.projectId);
   const generatedModelName = useSnapStore((state) => state.generatedModelName);
   const generatedStlUrl = useSnapStore((state) => state.generatedStlUrl);
   const generatedProviderKind = useSnapStore((state) => state.generatedProviderKind);
@@ -40,18 +42,8 @@ export function AiMeshEditor() {
       }
       setBusy(true);
       setMessage('Applying geometry edit...');
-      const result = await editGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, prompt: instruction.trim() });
-      applyModelRevision({
-        url: result.model_url,
-        name: result.model_name,
-        stlUrl: result.stl_download_url,
-        providerKind: result.provider_kind,
-        changeKind: result.change_kind,
-        summary: result.edit_summary || result.notes,
-        scaleStatus: result.scale_status,
-        calibration: result.calibration,
-        validation: result.validation,
-      });
+      const result = await editGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, prompt: instruction.trim(), projectId });
+      applyModelRevision(revisionFromResult(result));
       setPrompt('');
       setMessage(result.change_kind === 'visual_only' ? `${result.edit_summary} Visual only; mesh dimensions are unchanged.` : result.edit_summary || 'Geometry updated.');
     } catch (error: any) {
@@ -71,8 +63,8 @@ export function AiMeshEditor() {
       }
       setBusy(true);
       setMessage('Calibrating physical scale...');
-      const result = await calibrateGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, measurement: measurement.trim() });
-      applyModelRevision({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, changeKind: 'geometry', summary: result.edit_summary || result.notes, scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
+      const result = await calibrateGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, measurement: measurement.trim(), projectId });
+      applyModelRevision(revisionFromResult(result));
       setMeasurement('');
       setMessage(result.edit_summary || 'Model calibrated.');
     } catch (error: any) {

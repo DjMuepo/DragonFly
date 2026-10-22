@@ -1,6 +1,11 @@
+import { useSnapStore } from './useSnapStore';
+
 export type GeometryResponse = {
   ok: boolean;
   job_id: string;
+  project_id?: string;
+  revision_id?: string;
+  revision_seq?: number;
   engine: string;
   provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only' | 'calibration';
   status: string;
@@ -58,6 +63,8 @@ export type GeometryJobResponse = {
   stage_detail?: string;
   preprocessing?: GeometryResponse['preprocessing'];
   error?: string;
+  error_code?: string;
+  project_id?: string;
   result?: GeometryResponse;
 };
 
@@ -95,6 +102,35 @@ function normalize(data: GeometryResponse): GeometryResponse {
   };
 }
 
+function authHeaders(): Record<string, string> {
+  const token = useSnapStore.getState().authToken;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function newIdempotencyKey(): string {
+  const cryptoApi: any = (globalThis as any).crypto;
+  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function failureMessage(res: Response, label: string): Promise<string> {
+  if (res.status === 401 && useSnapStore.getState().authToken) {
+    useSnapStore.getState().setAuth(undefined, undefined);
+    return 'Your session expired. Sign in again to keep saving your work.';
+  }
+  const text = await res.text().catch(() => '');
+  return `${label} (${res.status}): ${text}`;
+}
+
+async function postWithRetry(url: string, init: RequestInit): Promise<Response> {
+  // Same Idempotency-Key makes a network-level retry safe: the backend returns the original job.
+  try {
+    return await timedFetch(url, init);
+  } catch {
+    return await timedFetch(url, init);
+  }
+}
+
 async function timedFetch(url: string, options?: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
@@ -120,8 +156,16 @@ async function waitForGeometryJob(job: GeometryJobResponse, onProgress?: (job: G
     }
     if (current.status === 'error') throw new Error(`Generation failed — Job DF-${current.job_id}: ${current.error || `${current.provider} reconstruction failed`}`);
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    const response = await timedFetch(`${getGeometryApiBase()}/v1/geometry/jobs/${encodeURIComponent(current.job_id)}`);
-    if (!response.ok) throw new Error(`Geometry job lookup failed (${response.status})`);
+    let response: Response | null = null;
+    for (let retry = 0; retry < 3 && !response; retry += 1) {
+      try {
+        response = await timedFetch(`${getGeometryApiBase()}/v1/geometry/jobs/${encodeURIComponent(current.job_id)}`, { headers: authHeaders() });
+      } catch (error) {
+        if (retry === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+    if (!response || !response.ok) throw new Error(response ? await failureMessage(response, 'Geometry job lookup failed') : 'Geometry job lookup failed');
     current = (await response.json()) as GeometryJobResponse;
   }
   throw new Error('Geometry generation timed out before the backend returned a model.');
@@ -145,38 +189,38 @@ export async function generateGeometryFromImage(params: { imageUri?: string; lab
   } else {
     form.append('image', { uri: params.imageUri, name: 'scan.jpg', type: 'image/jpeg' } as any);
   }
-  const res = await timedFetch(`${getGeometryApiBase()}/v1/geometry/generate-from-image`, { method: 'POST', body: form });
-  if (!res.ok) throw new Error(`Geometry backend failed (${res.status}): ${await res.text()}`);
+  const res = await postWithRetry(`${getGeometryApiBase()}/v1/geometry/generate-from-image`, { method: 'POST', body: form, headers: { ...authHeaders(), 'Idempotency-Key': newIdempotencyKey() } });
+  if (!res.ok) throw new Error(await failureMessage(res, 'Geometry backend failed'));
   return waitForGeometryJob((await res.json()) as GeometryJobResponse, params.onProgress);
 }
 
 export async function generateGeometryFromPrompt(params: { label?: string; prompt?: string; onProgress?: (job: GeometryJobResponse) => void }): Promise<GeometryResponse> {
   const res = await fetch(`${getGeometryApiBase()}/v1/geometry/generate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ label: params.label || 'Object', confidence: 0.7, mode: 'approximate', prompt: params.prompt }),
   });
   if (!res.ok) throw new Error(`Geometry backend failed (${res.status}): ${await res.text()}`);
   return waitForGeometryJob((await res.json()) as GeometryJobResponse, params.onProgress);
 }
 
-export async function editGeometry(params: { label?: string; modelUrl?: string; prompt: string }): Promise<GeometryResponse> {
-  const res = await fetch(`${getGeometryApiBase()}/v1/geometry/edit`, {
+export async function editGeometry(params: { label?: string; modelUrl?: string; prompt: string; projectId?: string }): Promise<GeometryResponse> {
+  const res = await postWithRetry(`${getGeometryApiBase()}/v1/geometry/edit`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ label: params.label || 'Object', model_url: params.modelUrl, prompt: params.prompt }),
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), 'Idempotency-Key': newIdempotencyKey() },
+    body: JSON.stringify({ label: params.label || 'Object', model_url: params.modelUrl, prompt: params.prompt, project_id: params.projectId }),
   });
-  if (!res.ok) throw new Error(`Edit backend failed (${res.status}): ${await res.text()}`);
+  if (!res.ok) throw new Error(await failureMessage(res, 'Edit backend failed'));
   return waitForGeometryJob((await res.json()) as GeometryJobResponse);
 }
 
-export async function calibrateGeometry(params: { label?: string; modelUrl: string; measurement: string }): Promise<GeometryResponse> {
-  const res = await timedFetch(`${getGeometryApiBase()}/v1/geometry/calibrate`, {
+export async function calibrateGeometry(params: { label?: string; modelUrl: string; measurement: string; projectId?: string }): Promise<GeometryResponse> {
+  const res = await postWithRetry(`${getGeometryApiBase()}/v1/geometry/calibrate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ label: params.label || 'Object', model_url: params.modelUrl, measurement: params.measurement }),
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), 'Idempotency-Key': newIdempotencyKey() },
+    body: JSON.stringify({ label: params.label || 'Object', model_url: params.modelUrl, measurement: params.measurement, project_id: params.projectId }),
   });
-  if (!res.ok) throw new Error(`Calibration failed (${res.status}): ${await res.text()}`);
+  if (!res.ok) throw new Error(await failureMessage(res, 'Calibration failed'));
   return waitForGeometryJob((await res.json()) as GeometryJobResponse);
 }
 

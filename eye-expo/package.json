@@ -11,7 +11,8 @@
     "dev": "expo start --web",
     "build:web": "expo export --platform web",
     "typecheck": "tsc --noEmit",
-    "test:history": "node --experimental-strip-types tests/modelHistory.test.ts"
+    "test:history": "node --experimental-strip-types tests/modelHistory.test.ts",
+    "test:projects": "node --experimental-strip-types tests/projectMapping.test.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

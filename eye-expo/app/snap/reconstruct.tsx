@@ -3,6 +3,8 @@ import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { useSnapStore } from '../../src/lib/useSnapStore';
 import { generateGeometryFromImage } from '../../src/lib/geometryApi';
+import { revisionFromResult } from '../../src/lib/revisionFromResult';
+import { ProjectPanel } from '../../src/components/ProjectPanel';
 
 export default function ReconstructScreen() {
   const router = useRouter();
@@ -16,6 +18,7 @@ export default function ReconstructScreen() {
   const reconstructionWarnings = useSnapStore((s) => s.reconstructionWarnings);
   const initializeModelHistory = useSnapStore((s) => s.initializeModelHistory);
   const setJobResultLinks = useSnapStore((s) => s.setJobResultLinks);
+  const setProject = useSnapStore((s) => s.setProject);
   const imageUri = cutoutUri || heroUri;
 
   const [stage, setStage] = useState<'building' | 'ready' | 'error'>('building');
@@ -71,7 +74,8 @@ export default function ReconstructScreen() {
         setGeneratedExport(result.stl_download_url, result.provider_kind);
         const warnings = result.reconstruction_quality ? [...result.reconstruction_quality.warnings, result.reconstruction_quality.limitation] : [];
         setReconstructionDetails(result.quality_mode, result.preprocessing, result.hidden_surface_uncertainty, warnings);
-        initializeModelHistory({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, summary: 'Original reconstructed model', scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
+        initializeModelHistory({ ...revisionFromResult(result), summary: 'Original reconstructed model' });
+        setProject(result.project_id, targetLabel || 'Object');
         setJobResultLinks(result.model_url, result.download_url);
         setModelName(result.model_name);
         setEngine(`${result.engine} (${result.provider_kind})`);
@@ -93,7 +97,7 @@ export default function ReconstructScreen() {
     return () => {
       alive = false;
     };
-  }, [attempt, imageUri, targetLabel, activeQualityMode, setGeneratedModel, setGeneratedExport, setReconstructionDetails, initializeModelHistory, setJobResultLinks]);
+  }, [attempt, imageUri, targetLabel, activeQualityMode, setGeneratedModel, setGeneratedExport, setReconstructionDetails, initializeModelHistory, setJobResultLinks, setProject]);
 
   if (!imageUri) {
     return (
@@ -161,6 +165,7 @@ export default function ReconstructScreen() {
             {modelName ? <Text style={styles.readySubtext}>Model: {modelName}</Text> : null}
             {engine ? <Text style={styles.readySubtext}>Engine: {engine}</Text> : null}
           </View>
+          <ProjectPanel refresh={false} />
           <View style={styles.actions}>
             <Pressable style={styles.primaryButton} onPress={() => router.push('/snap/viewer')}>
               <Text style={styles.buttonText}>View 3D</Text>

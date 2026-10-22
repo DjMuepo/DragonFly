@@ -6,6 +6,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const clear = useSnapStore((s) => s.clear);
   const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
+  const authToken = useSnapStore((s) => s.authToken);
 
   const startScan = () => {
     clear();
@@ -25,6 +26,9 @@ export default function HomeScreen() {
         {generatedModelUrl ? <Pressable style={styles.secondaryButton} onPress={() => router.push('/snap/result')}>
           <Text style={styles.secondaryText}>Last Result</Text>
         </Pressable> : null}
+        <Pressable style={styles.secondaryButton} onPress={() => router.push('/account')}>
+          <Text style={styles.secondaryText}>{authToken ? 'My Projects' : 'Sign In / My Projects'}</Text>
+        </Pressable>
       </View>
     </View>
   );

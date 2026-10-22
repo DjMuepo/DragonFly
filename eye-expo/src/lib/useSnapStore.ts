@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { appendRevision, currentRevision, redoRevision, resetRevisions, undoRevision } from './modelHistory';
+import { historyFromProject, type ServerProject } from './projectMapping';
+import { setProjectCursor } from './projectsApi';
 
 export type LicenseStatus = 'OK' | 'RESTRICTED' | 'UNKNOWN';
 export type Novelty = 'COMMON' | 'SOMEWHAT_UNIQUE' | 'UNIQUE';
@@ -29,6 +31,9 @@ export type ModelRevision = {
   providerKind: string;
   changeKind?: 'geometry' | 'visual_only';
   summary?: string;
+  jobId?: string;
+  revisionId?: string;
+  unavailableReason?: string;
   scaleStatus?: 'unknown' | 'calibrated';
   calibration?: { axis: 'width' | 'depth' | 'height'; value_mm: number; source_measurement: string };
   validation?: {
@@ -78,6 +83,9 @@ type SnapState = {
   downloadUrl?: string;
   modelHistory: ModelRevision[];
   modelHistoryIndex: number;
+  projectId?: string;
+  projectName?: string;
+  projectSyncError?: string;
 
   setHeroUri: (uri?: string) => void;
   setCutoutUri: (uri?: string) => void;
@@ -88,6 +96,8 @@ type SnapState = {
   setGeneratedExport: (stlUrl?: string, providerKind?: string) => void;
   setReconstructionDetails: (quality?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY', preprocessing?: SnapState['preprocessingReport'], uncertainty?: string, warnings?: string[]) => void;
   initializeModelHistory: (revision: ModelRevision) => void;
+  setProject: (id?: string, name?: string) => void;
+  loadProject: (project: ServerProject) => void;
   applyModelRevision: (revision: ModelRevision) => void;
   undoModelEdit: () => void;
   redoModelEdit: () => void;
@@ -178,6 +188,9 @@ const resetState = () => ({
   downloadUrl: undefined,
   modelHistory: [],
   modelHistoryIndex: -1,
+  projectId: undefined,
+  projectName: undefined,
+  projectSyncError: undefined,
   captureMode: 'single' as CaptureMode,
   burstUris: [],
   jobId: undefined,
@@ -204,13 +217,21 @@ const resetState = () => ({
   sharedDesign: undefined,
 });
 
-export const useSnapStore = create<SnapState>()(persist((set, get) => ({
+export const useSnapStore = create<SnapState>()(persist((set, get) => {
+  const syncCursor = () => {
+    const { authToken, projectId, modelHistoryIndex } = get();
+    if (!authToken || !projectId || modelHistoryIndex < 0) return;
+    setProjectCursor(authToken, projectId, modelHistoryIndex)
+      .then(() => set({ projectSyncError: undefined }))
+      .catch((error: any) => set({ projectSyncError: error?.message || 'Could not save the revision position.' }));
+  };
+  return {
   ...resetState(),
   userProfile: { interests: [], skillLevel: 'beginner' },
   authToken: undefined,
   currentUser: undefined,
 
-  setHeroUri: (heroUri) => set({ heroUri, generatedModelUrl: undefined, generatedModelName: undefined, generatedStlUrl: undefined, generatedProviderKind: undefined, reconstructionQuality: undefined, preprocessingReport: undefined, hiddenSurfaceUncertainty: undefined, reconstructionWarnings: [], modelDownloadUrl: undefined, modelHistory: [], modelHistoryIndex: -1 }),
+  setHeroUri: (heroUri) => set({ heroUri, generatedModelUrl: undefined, generatedModelName: undefined, generatedStlUrl: undefined, generatedProviderKind: undefined, reconstructionQuality: undefined, preprocessingReport: undefined, hiddenSurfaceUncertainty: undefined, reconstructionWarnings: [], modelDownloadUrl: undefined, modelHistory: [], modelHistoryIndex: -1, projectId: undefined, projectName: undefined, projectSyncError: undefined }),
   setCutoutUri: (cutoutUri) => set({ cutoutUri }),
   setTargetLabel: (targetLabel) => set({ targetLabel }),
   addCaptured: (image) => set((state) => ({ captured: [...state.captured, image] })),
@@ -218,25 +239,46 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => ({
   setGeneratedExport: (generatedStlUrl, generatedProviderKind) => set({ generatedStlUrl, generatedProviderKind }),
   setReconstructionDetails: (reconstructionQuality, preprocessingReport, hiddenSurfaceUncertainty, reconstructionWarnings = []) => set({ reconstructionQuality, preprocessingReport, hiddenSurfaceUncertainty, reconstructionWarnings }),
   initializeModelHistory: (revision) => set({ modelHistory: [revision], modelHistoryIndex: 0 }),
+  setProject: (projectId, projectName) => set({ projectId, projectName, projectSyncError: undefined }),
+  loadProject: (project) => set(() => {
+    const { history, index } = historyFromProject(project);
+    const revision = history[index];
+    const usable = revision && !revision.unavailableReason;
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      projectSyncError: undefined,
+      targetLabel: project.label,
+      modelHistory: history,
+      modelHistoryIndex: index,
+      generatedModelUrl: usable ? revision.url : undefined,
+      generatedModelName: usable ? revision.name : undefined,
+      generatedStlUrl: usable ? revision.stlUrl : undefined,
+      generatedProviderKind: revision?.providerKind,
+      modelDownloadUrl: usable ? revision.url : undefined,
+      modelUrl: usable ? revision.url : undefined,
+      reconstructionWarnings: [],
+    };
+  }),
   applyModelRevision: (revision) => set((state) => {
     const next = appendRevision(state.modelHistory, state.modelHistoryIndex, revision);
     return { modelHistory: next.history, modelHistoryIndex: next.index, generatedModelUrl: revision.url, generatedModelName: revision.name, generatedStlUrl: revision.stlUrl, generatedProviderKind: revision.providerKind, modelDownloadUrl: revision.url, modelUrl: revision.url };
   }),
-  undoModelEdit: () => set((state) => {
+  undoModelEdit: () => { set((state) => {
     const next = undoRevision(state.modelHistory, state.modelHistoryIndex);
     const revision = currentRevision(next);
     return revision ? { modelHistoryIndex: next.index, generatedModelUrl: revision.url, generatedModelName: revision.name, generatedStlUrl: revision.stlUrl, generatedProviderKind: revision.providerKind, modelDownloadUrl: revision.url, modelUrl: revision.url } : {};
-  }),
-  redoModelEdit: () => set((state) => {
+  }); syncCursor(); },
+  redoModelEdit: () => { set((state) => {
     const next = redoRevision(state.modelHistory, state.modelHistoryIndex);
     const revision = currentRevision(next);
     return revision ? { modelHistoryIndex: next.index, generatedModelUrl: revision.url, generatedModelName: revision.name, generatedStlUrl: revision.stlUrl, generatedProviderKind: revision.providerKind, modelDownloadUrl: revision.url, modelUrl: revision.url } : {};
-  }),
-  resetModelEdits: () => set((state) => {
+  }); syncCursor(); },
+  resetModelEdits: () => { set((state) => {
     const next = resetRevisions(state.modelHistory);
     const revision = currentRevision(next);
     return revision ? { modelHistoryIndex: next.index, generatedModelUrl: revision.url, generatedModelName: revision.name, generatedStlUrl: revision.stlUrl, generatedProviderKind: revision.providerKind, modelDownloadUrl: revision.url, modelUrl: revision.url } : {};
-  }),
+  }); syncCursor(); },
   setModelLinks: (modelUrl, downloadUrl) => set({ modelUrl, downloadUrl, generatedModelUrl: modelUrl }),
   clear: () => set(resetState()),
 
@@ -265,7 +307,8 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => ({
   setPrintRequest: (printRequest) => set({ printRequest }),
   setSharedDesign: (sharedDesign) => set({ sharedDesign }),
   reset: () => set(resetState()),
-}), {
+  };
+}, {
   name: 'dragonfly-alpha-result',
   storage: typeof localStorage === 'undefined' ? undefined : createJSONStorage(() => localStorage),
   partialize: (state) => ({
@@ -281,5 +324,9 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => ({
     modelDownloadUrl: state.modelDownloadUrl,
     modelHistory: state.modelHistory,
     modelHistoryIndex: state.modelHistoryIndex,
+    projectId: state.projectId,
+    projectName: state.projectName,
+    authToken: state.authToken,
+    currentUser: state.currentUser,
   }),
 }));

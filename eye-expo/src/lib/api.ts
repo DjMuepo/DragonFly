@@ -603,38 +603,6 @@ export async function publishDesign(payload: any): Promise<{ok:boolean; design: 
 }
 
 
-export async function signupUser(payload: {email:string; password:string; name?:string; interests?:string[]; skill_level?:string}) {
-  const res = await fetch(`${API_BASE}/v1/auth/signup`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(`signup failed ${res.status}`);
-  return await res.json();
-}
-
-export async function loginUser(payload: {email:string; password:string}) {
-  const res = await fetch(`${API_BASE}/v1/auth/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(`login failed ${res.status}`);
-  return await res.json();
-}
-
-export async function getMe(token: string) {
-  const res = await fetch(`${API_BASE}/v1/me?token=${encodeURIComponent(token)}`);
-  if (!res.ok) throw new Error(`me failed ${res.status}`);
-  return await res.json();
-}
-
-export async function listMyDesigns(token: string) {
-  const res = await fetch(`${API_BASE}/v1/my-designs?token=${encodeURIComponent(token)}`);
-  if (!res.ok) throw new Error(`my designs failed ${res.status}`);
-  return await res.json();
-}
-
 export async function likeDesign(slug: string) {
   const res = await fetch(`${API_BASE}/v1/designs/${slug}/like`, { method: 'POST' });
   if (!res.ok) throw new Error(`like design failed ${res.status}`);

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { revisionFromResult } from '../../src/lib/revisionFromResult';
 import { useSnapStore } from '../../src/lib/useSnapStore';
 import { editGeometry, preparePrint } from '../../src/lib/geometryApi';
 import { calibrateGeometry } from '../../src/lib/geometryApi';
@@ -15,6 +16,7 @@ export default function AiEditScreen() {
   const router = useRouter();
   const targetLabel = useSnapStore((s) => s.targetLabel);
   const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
+  const projectId = useSnapStore((s) => s.projectId);
   const generatedModelName = useSnapStore((s) => s.generatedModelName);
   const generatedStlUrl = useSnapStore((s) => s.generatedStlUrl);
   const generatedProviderKind = useSnapStore((s) => s.generatedProviderKind);
@@ -34,9 +36,9 @@ export default function AiEditScreen() {
     try {
       setBusy(true);
       setMessage('Building edited model...');
-      const result = await editGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, prompt: nextPrompt });
+      const result = await editGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, prompt: nextPrompt, projectId });
       if (!modelHistory.length) initializeModelHistory({ url: generatedModelUrl, name: generatedModelName || 'original.glb', stlUrl: generatedStlUrl, providerKind: generatedProviderKind || 'ai', summary: 'Original reconstructed model', scaleStatus: 'unknown' });
-      applyModelRevision({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, changeKind: result.change_kind, summary: result.edit_summary || result.notes, scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
+      applyModelRevision(revisionFromResult(result));
       setMessage(result.edit_summary || `Updated with ${result.engine}.`);
       router.push('/snap/viewer');
     } catch (err: any) {
@@ -74,9 +76,9 @@ export default function AiEditScreen() {
     try {
       setBusy(true);
       setMessage('Calibrating physical scale...');
-      const result = await calibrateGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, measurement: measurement.trim() });
+      const result = await calibrateGeometry({ label: targetLabel || 'Object', modelUrl: generatedModelUrl, measurement: measurement.trim(), projectId });
       if (!modelHistory.length) initializeModelHistory({ url: generatedModelUrl, name: generatedModelName || 'original.glb', stlUrl: generatedStlUrl, providerKind: generatedProviderKind || 'ai', summary: 'Original reconstructed model', scaleStatus: 'unknown' });
-      applyModelRevision({ url: result.model_url, name: result.model_name, stlUrl: result.stl_download_url, providerKind: result.provider_kind, changeKind: 'geometry', summary: result.edit_summary || result.notes, scaleStatus: result.scale_status, calibration: result.calibration, validation: result.validation });
+      applyModelRevision(revisionFromResult(result));
       setMessage(result.edit_summary || 'Physical scale calibrated.');
     } catch (err: any) {
       setMessage(err?.message || 'Calibration failed. Check the known measurement and try again.');
