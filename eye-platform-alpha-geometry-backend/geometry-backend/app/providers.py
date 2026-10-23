@@ -18,6 +18,7 @@ from typing import Protocol
 from .mesh_factory import export_glb, export_trimesh, infer_preset
 from .mesh_editing import validate_for_print
 from .reconstruction_debug import assess_reconstruction, save_debug_record
+from .environment import staging_mock_allowed
 
 
 LOGGER = logging.getLogger("uvicorn.error.dragonfly.reconstruction")
@@ -104,6 +105,27 @@ class ProceduralProvider:
             detected_family=infer_preset(request.label),
             notes="Validated procedural geometry generated as the guaranteed alpha fallback.",
             provider_kind="procedural_fallback",
+        )
+
+
+class StagingMockProvider:
+    name = "mock-test"
+
+    def generate(self, request: ReconstructionRequest, models_dir: Path) -> ReconstructionOutput:
+        if not staging_mock_allowed() or os.environ.get("EYE_ENABLE_MOCK_PROVIDER") != "1":
+            raise RuntimeError("Mock reconstruction is restricted to explicitly enabled staging/test environments.")
+        generated = ProceduralProvider().generate(request, models_dir)
+        return ReconstructionOutput(
+            engine=self.name,
+            model_name=generated.model_name,
+            model_path=generated.model_path,
+            stl_name=generated.stl_name,
+            stl_path=generated.stl_path,
+            detected_family=generated.detected_family,
+            notes="TEST DATA: deterministic mock geometry; no AI prediction was called.",
+            provider_kind="mock_test",
+            validation=generated.validation,
+            reconstruction_quality={"status": "warning", "fidelity_verified": False, "warnings": ["This is deterministic staging test data, not an AI reconstruction."], "limitation": "Mock provider only."},
         )
 
 
@@ -414,6 +436,10 @@ class ReplicateGPUProvider:
 def select_provider() -> ReconstructionProvider:
     _load_backend_env()
     requested = os.environ.get("EYE_RECONSTRUCTION_PROVIDER", "dpt-depth-mesh").strip().lower()
+    if requested in {"mock-test", "mock"}:
+        if os.environ.get("EYE_ENABLE_MOCK_PROVIDER") != "1" or not staging_mock_allowed():
+            raise RuntimeError("Mock reconstruction is restricted to explicitly enabled staging/test environments.")
+        return StagingMockProvider()
     if requested in {"", "procedural", "parametric"}:
         return ProceduralProvider()
     if requested == "triposr":

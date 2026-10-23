@@ -25,6 +25,7 @@ from .mesh_editing import DeterministicMeshEditor, EditResult, FeatureEditingPro
 from .image_preprocessing import prepare_reconstruction_image
 from .physical_units import ScaleMetadata, calibrate_mesh, export_manufacturing_mesh, load_scale_metadata, mesh_from_glb_for_edit, save_scale_metadata
 from .providers import ProceduralProvider, ReconstructionRequest, reconstruct, select_provider
+from .environment import application_environment
 from .api_routes import build_router
 from .cors import install_cors
 from .request_limits import RequestSizeLimitMiddleware
@@ -140,7 +141,7 @@ class GeometryJobResponse(BaseModel):
     status: str
     progress: int
     provider: str
-    provider_kind: str
+    provider_kind: Literal["ai", "procedural_fallback", "deterministic_edit", "visual_only", "calibration", "mock_test"]
     quality_mode: str = "STANDARD"
     stage: Optional[str] = None
     stage_detail: Optional[str] = None
@@ -224,7 +225,7 @@ def _run_generation(job_id: str, base_url: str, label: str, confidence: float, i
             if prepared_path is None or preprocessing is None:
                 raise RuntimeError("Image preprocessing did not produce a provider input.")
             active_stage = "replicate_reconstruction"
-            _log_reconstruction_event(job_id, "provider_request", provider=provider_name, processed_dimensions=preprocessing["output_dimensions"], provider_kind="ai")
+            _log_reconstruction_event(job_id, "provider_request", provider=provider_name, processed_dimensions=preprocessing["output_dimensions"], provider_kind=job["provider_kind"])
             job.update(progress=35, stage="reconstructing", stage_detail="Generating mesh with the selected AI provider.")
             generated = reconstruct(
                 request,
@@ -257,7 +258,7 @@ def _run_generation(job_id: str, base_url: str, label: str, confidence: float, i
         )
     except Exception as error:
         _log_reconstruction_event(job_id, active_stage, provider=provider_name, status="error", error_type=type(error).__name__)
-        uncertain = photo_reconstruction and active_stage in {"replicate_reconstruction", "result_validation"}
+        uncertain = provider_name == "replicate-remote-gpu" and active_stage in {"replicate_reconstruction", "result_validation"}
         job.update(
             status="error",
             progress=100,
@@ -289,7 +290,7 @@ def _present_job(job, base_url: str) -> GeometryJobResponse:
 
 def _create_geometry_job(request: Request, background: BackgroundTasks, label: str, confidence: float, image_path: Path | None = None, prompt: str | None = None, quality_mode: str = "STANDARD", owner_id: str | None = None, source_file: str | None = None, idempotency_key: str | None = None, fingerprint: str | None = None) -> GeometryJobResponse:
     provider = ProceduralProvider() if image_path is None else select_provider()
-    provider_kind = "procedural_fallback" if provider.name == "procedural-parametric" else "ai"
+    provider_kind = "mock_test" if provider.name == "mock-test" else "procedural_fallback" if provider.name == "procedural-parametric" else "ai"
     extra = {"source_file": source_file, "fingerprint": fingerprint}
     try:
         job, created = JOBS.create("generate", owner_id, provider.name, provider_kind, quality_mode, extra=extra, idempotency_key=idempotency_key, stage_detail="Waiting for reconstruction worker.")
@@ -478,6 +479,11 @@ def health():
             "external_backup_configured": RUNTIME.settings.backup_external_configured,
             "restore_tested_attested": RUNTIME.settings.backup_restore_tested,
             "warnings": RUNTIME.settings.warnings,
+        },
+        "inference": {
+            "environment": application_environment(),
+            "provider": os.environ.get("EYE_RECONSTRUCTION_PROVIDER", "dpt-depth-mesh"),
+            "mock_enabled": os.environ.get("EYE_ENABLE_MOCK_PROVIDER") == "1",
         },
     }
 

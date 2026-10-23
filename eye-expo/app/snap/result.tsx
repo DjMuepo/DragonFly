@@ -51,6 +51,7 @@ export default function ResultScreen() {
         <Text style={styles.cardText}>{hasModel ? 'Compare the shape with your photo before accepting it.' : 'Generation has not completed. Retry to create a model.'}</Text>
         <Text style={styles.cardSubtext}>Model: {generatedModelName || 'not generated yet'}</Text>
         {hasModel ? <Text style={styles.cardSubtext}>{generatedProviderKind === 'ai' ? 'AI reconstruction' : 'Procedural fallback (not AI)'}</Text> : null}
+        {hasModel && generatedProviderKind === 'mock_test' ? <Text style={styles.cardSubtext}>TEST DATA — deterministic staging mock; no AI prediction was called.</Text> : null}
         {hasModel && reconstructionQuality ? <Text style={styles.cardSubtext}>Input mode: {reconstructionQuality.replace('_', ' ')}</Text> : null}
         {hasModel && preprocessingReport ? <Text style={styles.cardSubtext}>{preprocessingReport.foreground_segmenter} segmentation · object crop {preprocessingReport.object_crop_applied ? 'applied' : 'not applied'}</Text> : null}
         {hasModel && hiddenSurfaceUncertainty ? <Text style={styles.cardSubtext}>{hiddenSurfaceUncertainty}</Text> : null}

@@ -15,6 +15,7 @@ from .persistence.repository import Repository
 from .persistence.settings import StorageSettings, load_settings
 from .persistence.sqlite_repository import SqliteRepository
 from .projects import ProjectService
+from .environment import validate_mock_provider_settings
 
 LOGGER = logging.getLogger("uvicorn.error.dragonfly.storage")
 
@@ -97,6 +98,7 @@ def _file_digest(path: Path) -> str:
 
 
 def build_runtime() -> Runtime:
+    validate_mock_provider_settings()
     settings = load_settings()
     if settings.require_durable and not settings.durable:
         raise RuntimeError("EYE_REQUIRE_DURABLE_STORAGE=1 but EYE_DATA_DIR/EYE_STORAGE_DURABLE=1 are not configured.")

@@ -1,0 +1,54 @@
+services:
+  - type: web
+    name: dragonfly-staging-geometry-backend
+    env: docker
+    rootDir: eye-platform-alpha-geometry-backend/geometry-backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: false
+    healthCheckPath: /health
+    envVars:
+      - key: EYE_APP_ENV
+        value: staging
+      - key: EYE_RECONSTRUCTION_PROVIDER
+        value: mock-test
+      - key: EYE_ENABLE_MOCK_PROVIDER
+        value: "1"
+      - key: EYE_ALLOW_PROCEDURAL_FALLBACK
+        value: "0"
+      - key: EYE_LOCAL_SEGMENTATION
+        value: "0"
+      - key: EYE_DATA_DIR
+        value: /var/data/dragonfly
+      - key: EYE_STORAGE_DURABLE
+        value: "0"
+      - key: EYE_REQUIRE_DURABLE_STORAGE
+        value: "1"
+      - key: EYE_SIGNING_SECRET
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: EYE_ALLOWED_ORIGINS
+        value: https://dragonfly-staging-frontend.onrender.com
+      - key: EYE_MAX_ACTIVE_RECONSTRUCTION_JOBS_PER_USER
+        value: "1"
+      - key: EYE_MAX_ACTIVE_GUEST_JOBS
+        value: "1"
+      - key: EYE_DAILY_RECONSTRUCTION_QUOTA_PER_USER
+        value: "1"
+      - key: EYE_DAILY_RECONSTRUCTION_QUOTA_PER_GUEST
+        value: "1"
+
+  - type: web
+    name: dragonfly-staging-frontend
+    runtime: static
+    rootDir: eye-expo
+    buildCommand: npm ci && npm run build:web
+    staticPublishPath: ./dist
+    envVars:
+      - key: EXPO_PUBLIC_GEOMETRY_API_BASE
+        value: https://dragonfly-staging-geometry-backend.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

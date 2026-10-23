@@ -10,7 +10,7 @@ export type GeometryResponse = {
   revision_id?: string;
   revision_seq?: number;
   engine: string;
-  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only' | 'calibration';
+  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only' | 'calibration' | 'mock_test';
   status: string;
   label: string;
   detected_family?: string;
@@ -60,7 +60,7 @@ export type GeometryJobResponse = {
   status: 'queued' | 'processing' | 'done' | 'error';
   progress: number;
   provider: string;
-  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only' | 'calibration';
+  provider_kind: 'ai' | 'procedural_fallback' | 'deterministic_edit' | 'visual_only' | 'calibration' | 'mock_test';
   quality_mode?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY';
   stage?: string;
   stage_detail?: string;
