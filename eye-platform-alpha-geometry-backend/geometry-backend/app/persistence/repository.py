@@ -10,11 +10,20 @@ class DuplicateError(Exception):
     """A unique constraint (email, job idempotency key, revision job) was violated."""
 
 
+class QuotaExceeded(Exception):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class Repository(ABC):
     """Storage boundary. Business logic must depend on this class, never on a database driver."""
 
     @abstractmethod
     def migrate(self) -> list[str]: ...
+
+    @abstractmethod
+    def integrity_check(self) -> str: ...
 
     # users and sessions
     @abstractmethod
@@ -74,7 +83,7 @@ class Repository(ABC):
 
     # jobs
     @abstractmethod
-    def create_job(self, job: Row) -> Row: ...
+    def create_job(self, job: Row, limits: Optional[dict] = None) -> Row: ...
     @abstractmethod
     def get_job(self, job_id: str) -> Optional[Row]: ...
     @abstractmethod

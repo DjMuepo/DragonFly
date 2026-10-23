@@ -58,24 +58,41 @@ class LoginLimiter:
         self.window = window_seconds
         self._failures: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
+        self.max_keys = 10_000
 
     def _prune(self, key: str, now: float) -> deque:
         bucket = self._failures[key]
         while bucket and bucket[0] < now - self.window:
             bucket.popleft()
+        if not bucket:
+            self._failures.pop(key, None)
         return bucket
 
-    def blocked(self, key: str) -> bool:
+    def blocked(self, email: str, ip: str) -> bool:
         with self._lock:
-            return len(self._prune(key, time.time())) >= self.max_failures
+            now = time.time()
+            email_key = f"email:{ip}:{email}" if ip else f"email:{email}"
+            account_blocked = len(self._prune(email_key, now)) >= self.max_failures
+            ip_blocked = bool(ip) and len(self._prune(f"ip:{ip}", now)) >= self.max_failures * 4
+            return account_blocked or ip_blocked
 
-    def record_failure(self, key: str) -> None:
+    def record_failure(self, email: str, ip: str) -> None:
         with self._lock:
-            self._prune(key, time.time()).append(time.time())
+            now = time.time()
+            keys = (f"email:{ip}:{email}", f"ip:{ip}") if ip else (f"email:{email}",)
+            for key in keys:
+                bucket = self._prune(key, now)
+                bucket.append(now)
+                self._failures[key] = bucket
+            if len(self._failures) > self.max_keys:
+                for key in list(self._failures):
+                    self._prune(key, now)
+                while len(self._failures) > self.max_keys:
+                    self._failures.pop(next(iter(self._failures)))
 
-    def clear(self, key: str) -> None:
+    def clear(self, email: str, ip: str) -> None:
         with self._lock:
-            self._failures.pop(key, None)
+            self._failures.pop(f"email:{ip}:{email}" if ip else f"email:{email}", None)
 
 
 class AuthService:
@@ -104,16 +121,16 @@ class AuthService:
             raise AuthError("An account with this email already exists.", 409) from None
         return self._open_session(user)
 
-    def login(self, email: str, password: str) -> dict:
+    def login(self, email: str, password: str, client_ip: str = "unknown") -> dict:
         email = (email or "").strip().lower()
-        if self.limiter.blocked(email):
+        if self.limiter.blocked(email, client_ip):
             raise AuthError("Too many failed attempts. Try again later.", 429)
         user = self.repo.get_user_by_email(email)
         valid = verify_password(password or "", user["password_hash"] if user else self._dummy_hash)
         if not user or not valid or user["disabled"]:
-            self.limiter.record_failure(email)
+            self.limiter.record_failure(email, client_ip)
             raise AuthError("Email or password is incorrect.", 401)
-        self.limiter.clear(email)
+        self.limiter.clear(email, client_ip)
         return self._open_session(user)
 
     def authenticate(self, token: Optional[str]) -> Optional[tuple[Row, Row]]:

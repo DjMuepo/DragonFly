@@ -12,7 +12,7 @@ export default function PrintReady() {
   const visionReconstruct = useSnapStore((s) => (s as any).visionReconstruct);
   const [exportState, setExportState] = React.useState<any>(null);
   const [printability, setPrintability] = React.useState<any>(null);
-  const [printabilityError, setPrintabilityError] = React.useState<string | null>(null);
+  const [printabilityError] = React.useState<string | null>('Slicer-based printability analysis is unavailable. No check was run.');
   const [exportError, setExportError] = React.useState<string | null>(null);
   const [shareError, setShareError] = React.useState<string | null>(null);
   const setSharedDesign = useSnapStore((s:any) => s.setSharedDesign);
@@ -20,24 +20,6 @@ export default function PrintReady() {
   const authToken = useSnapStore((s:any) => s.authToken);
   const currentUser = useSnapStore((s:any) => s.currentUser);
   const [shareState, setShareState] = React.useState<any>(null);
-
-  React.useEffect(() => {
-    (async () => {
-      try {
-        if (visionReconstruct?.parametric_draft) {
-          const r = await analyzePrintability(visionReconstruct.parametric_draft);
-          setPrintability(r);
-          setPrintabilityError(null);
-        } else {
-          setPrintabilityError('No parametric draft is available for this analyzer. Reconstructed-mesh slicer validation is not integrated.');
-        }
-      } catch (e) {
-        console.warn('printability failed', e);
-        setPrintability(null);
-        setPrintabilityError('Printability analysis is unavailable. No print-readiness result was produced.');
-      }
-    })();
-  }, [visionReconstruct?.parametric_draft]);
 
   return (
     <View style={styles.container}>
@@ -54,16 +36,18 @@ export default function PrintReady() {
 
       <View style={styles.panel}>
         <Text style={[styles.row, { fontWeight: '800' }]}>Review & Grade</Text>
-            <Text style={styles.subtitle}>Optional self-reported feedback; no physical print is inferred.</Text>
+            <Text style={styles.subtitle}>Feedback collection is unavailable; no event will be recorded.</Text>
 
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
           <Pressable
+            disabled
             style={[styles.secondary, { flex: 1, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0b0b0b' }]}
             onPress={() => logEvent({ event: 'useful_yes', session_id: sessionId, model_id: selectedMatchId ?? undefined, payload: { confidence: structuralReport?.confidence } })}
           >
             <Text style={styles.secondaryText}>👍 Helpful</Text>
           </Pressable>
           <Pressable
+            disabled
             style={[styles.secondary, { flex: 1, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0b0b0b' }]}
             onPress={() => logEvent({ event: 'useful_no', session_id: sessionId, model_id: selectedMatchId ?? undefined, payload: { confidence: structuralReport?.confidence } })}
           >
@@ -74,12 +58,14 @@ export default function PrintReady() {
         <Text style={[styles.row, { marginTop: 12 }]}><Text style={styles.label}>Self-reported print outcome:</Text></Text>
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
           <Pressable
+            disabled
             style={[styles.secondary, { flex: 1, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0b0b0b' }]}
             onPress={() => logEvent({ event: 'print_outcome_success', session_id: sessionId, model_id: selectedMatchId ?? undefined, payload: { confidence: structuralReport?.confidence } })}
           >
             <Text style={styles.secondaryText}>I printed successfully</Text>
           </Pressable>
           <Pressable
+            disabled
             style={[styles.secondary, { flex: 1, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0b0b0b' }]}
             onPress={() => logEvent({ event: 'print_outcome_fail', session_id: sessionId, model_id: selectedMatchId ?? undefined, payload: { confidence: structuralReport?.confidence } })}
           >
@@ -88,6 +74,7 @@ export default function PrintReady() {
         </View>
 
         <Pressable
+          disabled
           style={[styles.secondary, { marginTop: 10, borderWidth: 1, borderColor: '#2a2a2a', backgroundColor: '#0b0b0b' }]}
           onPress={() => router.push('/snap/feedback')}
         >
@@ -106,6 +93,7 @@ export default function PrintReady() {
         <Text style={[styles.row, { fontWeight: '800' }]}>STL Export</Text>
         <Text style={styles.subtitle}>Export a parametric draft STL. This is separate from any reconstructed GLB.</Text>
         <Pressable
+          disabled
           style={[styles.primary, { marginTop: 10 }]}
           onPress={async () => {
             try {
@@ -119,7 +107,7 @@ export default function PrintReady() {
             }
           }}
         >
-          <Text style={styles.primaryText}>Generate STL</Text>
+          <Text style={styles.primaryText}>Parametric STL export unavailable</Text>
         </Pressable>
         {exportState ? <Text style={[styles.row, { marginTop: 10 }]}><Text style={styles.label}>Watertight: </Text><Text style={styles.value}>{exportState.meta?.is_watertight ? 'Yes' : 'Needs review'}</Text></Text> : null}
         {exportState ? <Text style={styles.row}><Text style={styles.label}>Faces: </Text><Text style={styles.value}>{exportState.meta?.faces}</Text></Text> : null}
@@ -130,16 +118,17 @@ export default function PrintReady() {
 
       <View style={styles.panel}>
         <Text style={[styles.row, { fontWeight: '800' }]}>Nearby printing</Text>
-        <Text style={styles.subtitle}>Send this design to a nearby printer that can handle the job.</Text>
-        <Pressable style={[styles.primary, { marginTop: 10 }]} onPress={() => router.push('/snap/nearby-printers')}>
-          <Text style={styles.primaryText}>Find nearby printers</Text>
+        <Text style={styles.subtitle}>Printer discovery and ordering are unavailable in this deployment.</Text>
+        <Pressable disabled style={[styles.primary, { marginTop: 10 }]}>
+          <Text style={styles.primaryText}>Printer service unavailable</Text>
         </Pressable>
       </View>
 
       <View style={styles.panel}>
         <Text style={[styles.row, { fontWeight: '800' }]}>Share Design</Text>
-        <Text style={styles.subtitle}>Publish this design in the app and generate a shareable design page.</Text>
+        <Text style={styles.subtitle}>Public sharing is unavailable in this deployment. No design will be published.</Text>
         <Pressable
+          disabled
           style={[styles.primary, { marginTop: 10 }]}
           onPress={async () => {
             try {
@@ -166,7 +155,7 @@ export default function PrintReady() {
             }
           }}
         >
-          <Text style={styles.primaryText}>Publish design</Text>
+          <Text style={styles.primaryText}>Sharing service unavailable</Text>
         </Pressable>
         {shareError ? <Text accessibilityRole="alert" style={styles.error}>{shareError}</Text> : null}
         {shareState ? <Text style={[styles.row, { marginTop: 10 }]}><Text style={styles.label}>Share page: </Text><Text style={styles.value}>{shareState.share_url}</Text></Text> : null}

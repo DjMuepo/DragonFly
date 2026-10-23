@@ -1,4 +1,6 @@
 import { useSnapStore } from './useSnapStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Crypto from 'expo-crypto';
 
 export type GeometryResponse = {
   ok: boolean;
@@ -107,10 +109,18 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-function newIdempotencyKey(): string {
-  const cryptoApi: any = (globalThis as any).crypto;
-  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+export function newIdempotencyKey(): string {
+  return Crypto.randomUUID();
+}
+
+export class GeometryJobFailed extends Error {
+  code?: string;
+  providerKind?: string;
+  constructor(job: GeometryJobResponse) {
+    super(`Generation failed — Job DF-${job.job_id}: ${job.error || `${job.provider} reconstruction failed`}`);
+    this.code = job.error_code;
+    this.providerKind = job.provider_kind;
+  }
 }
 
 async function failureMessage(res: Response, label: string): Promise<string> {
@@ -154,7 +164,7 @@ async function waitForGeometryJob(job: GeometryJobResponse, onProgress?: (job: G
       }
       return normalize(current.result);
     }
-    if (current.status === 'error') throw new Error(`Generation failed — Job DF-${current.job_id}: ${current.error || `${current.provider} reconstruction failed`}`);
+    if (current.status === 'error') throw new GeometryJobFailed(current);
     await new Promise((resolve) => setTimeout(resolve, 1000));
     let response: Response | null = null;
     for (let retry = 0; retry < 3 && !response; retry += 1) {
@@ -171,9 +181,12 @@ async function waitForGeometryJob(job: GeometryJobResponse, onProgress?: (job: G
   throw new Error('Geometry generation timed out before the backend returned a model.');
 }
 
-export async function generateGeometryFromImage(params: { imageUri?: string; label?: string; confidence?: number; qualityMode?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY'; onProgress?: (job: GeometryJobResponse) => void }): Promise<GeometryResponse> {
+export async function generateGeometryFromImage(params: { imageUri?: string; label?: string; confidence?: number; qualityMode?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY'; idempotencyKey?: string; onProgress?: (job: GeometryJobResponse) => void }): Promise<GeometryResponse> {
   const label = params.label || 'Object';
   if (!params.imageUri) throw new Error('Choose or capture a photo before generating a model.');
+  const idempotencyKey = params.idempotencyKey || newIdempotencyKey();
+  const pendingKey = 'dragonfly.pending-reconstruction';
+  await AsyncStorage.setItem(pendingKey, JSON.stringify({ idempotencyKey, jobId: null, label, imageUri: params.imageUri }));
   const form = new FormData();
   form.append('label', label);
   form.append('confidence', String(params.confidence ?? 0.7));
@@ -189,9 +202,41 @@ export async function generateGeometryFromImage(params: { imageUri?: string; lab
   } else {
     form.append('image', { uri: params.imageUri, name: 'scan.jpg', type: 'image/jpeg' } as any);
   }
-  const res = await postWithRetry(`${getGeometryApiBase()}/v1/geometry/generate-from-image`, { method: 'POST', body: form, headers: { ...authHeaders(), 'Idempotency-Key': newIdempotencyKey() } });
+  const res = await postWithRetry(`${getGeometryApiBase()}/v1/geometry/generate-from-image`, { method: 'POST', body: form, headers: { ...authHeaders(), 'Idempotency-Key': idempotencyKey } });
   if (!res.ok) throw new Error(await failureMessage(res, 'Geometry backend failed'));
-  return waitForGeometryJob((await res.json()) as GeometryJobResponse, params.onProgress);
+  const initial = (await res.json()) as GeometryJobResponse;
+  await AsyncStorage.setItem(pendingKey, JSON.stringify({ idempotencyKey, jobId: initial.job_id, label, imageUri: params.imageUri }));
+  try {
+    const result = await waitForGeometryJob(initial, (job) => {
+      void AsyncStorage.setItem(pendingKey, JSON.stringify({ idempotencyKey, jobId: job.job_id, label, imageUri: params.imageUri }));
+      params.onProgress?.(job);
+    });
+    await AsyncStorage.removeItem(pendingKey);
+    return result;
+  } catch (error) {
+    if (error instanceof GeometryJobFailed) await AsyncStorage.removeItem(pendingKey);
+    throw error;
+  }
+}
+
+export async function resumeGeometryJob(jobId: string, onProgress?: (job: GeometryJobResponse) => void): Promise<GeometryResponse> {
+  const response = await timedFetch(`${getGeometryApiBase()}/v1/geometry/jobs/${encodeURIComponent(jobId)}`, { headers: authHeaders() });
+  if (!response.ok) throw new Error(await failureMessage(response, 'Could not resume the existing reconstruction job'));
+  try {
+    const result = await waitForGeometryJob((await response.json()) as GeometryJobResponse, onProgress);
+    await AsyncStorage.removeItem('dragonfly.pending-reconstruction');
+    return result;
+  } catch (error) {
+    if (error instanceof GeometryJobFailed) await AsyncStorage.removeItem('dragonfly.pending-reconstruction');
+    throw error;
+  }
+}
+
+export async function findGeometryJobByKey(key: string): Promise<GeometryJobResponse | null> {
+  const response = await timedFetch(`${getGeometryApiBase()}/v1/geometry/idempotency`, { headers: { ...authHeaders(), 'Idempotency-Key': key } });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(await failureMessage(response, 'Could not recover the existing reconstruction request'));
+  return response.json() as Promise<GeometryJobResponse>;
 }
 
 export async function generateGeometryFromPrompt(params: { label?: string; prompt?: string; onProgress?: (job: GeometryJobResponse) => void }): Promise<GeometryResponse> {

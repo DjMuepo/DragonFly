@@ -15,7 +15,7 @@ import hashlib
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from PIL import Image, UnidentifiedImageError
 
@@ -26,7 +26,10 @@ from .image_preprocessing import prepare_reconstruction_image
 from .physical_units import ScaleMetadata, calibrate_mesh, export_manufacturing_mesh, load_scale_metadata, mesh_from_glb_for_edit, save_scale_metadata
 from .providers import ProceduralProvider, ReconstructionRequest, reconstruct, select_provider
 from .api_routes import build_router
+from .cors import install_cors
+from .request_limits import RequestSizeLimitMiddleware
 from .projects import ProjectError
+from .persistence.repository import QuotaExceeded
 from .runtime import build_runtime
 
 RUNTIME = build_runtime()
@@ -36,13 +39,8 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Eye Geometry Backend", version="0.4.0-alpha")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(RequestSizeLimitMiddleware, upload_max_bytes=RUNTIME.settings.upload_max_bytes)
+ALLOWED_ORIGINS = install_cors(app)
 _router, _deps = build_router(RUNTIME)
 app.include_router(_router)
 optional_auth = _deps["optional_auth"]
@@ -51,9 +49,22 @@ JOBS = RUNTIME.jobs
 PROJECTS = RUNTIME.projects
 
 
+@app.exception_handler(HTTPException)
+async def http_error_response(request: Request, error: HTTPException):
+    if error.status_code in (401, 403):
+        detail = error.detail if isinstance(error.detail, str) else "Request is not authorized."
+        return JSONResponse(status_code=error.status_code, headers=error.headers, content={"ok": False, "error": detail, "detail": detail})
+    return JSONResponse(status_code=error.status_code, headers=error.headers, content={"detail": error.detail})
+
+
 @app.on_event("startup")
 def recover_interrupted_jobs() -> None:
     RUNTIME.jobs.recover_interrupted()
+
+
+@app.exception_handler(QuotaExceeded)
+async def quota_exceeded_handler(request: Request, error: QuotaExceeded):
+    return JSONResponse(status_code=429, content={"ok": False, "error": str(error), "error_code": error.code, "detail": str(error)})
 
 
 LOGGER = logging.getLogger("uvicorn.error.dragonfly.reconstruction")
@@ -245,8 +256,16 @@ def _run_generation(job_id: str, base_url: str, label: str, confidence: float, i
             result=_model_response(base_url, job_id, label, generated, generation_metadata).model_dump(),
         )
     except Exception as error:
-        _log_reconstruction_event(job_id, active_stage, provider=provider_name, status="error", error_type=type(error).__name__, error=str(error))
-        job.update(status="error", progress=100, stage="error", stage_detail=str(error), error=str(error))
+        _log_reconstruction_event(job_id, active_stage, provider=provider_name, status="error", error_type=type(error).__name__)
+        uncertain = photo_reconstruction and active_stage in {"replicate_reconstruction", "result_validation"}
+        job.update(
+            status="error",
+            progress=100,
+            stage="error",
+            stage_detail="The provider status is uncertain; a new attempt could create another paid prediction." if uncertain else "The reconstruction provider did not complete the job.",
+            error="The provider status is uncertain. Check the saved project before starting another attempt." if uncertain else "Reconstruction failed. Try again later.",
+            error_code="provider_outcome_unknown" if uncertain else "provider_failed",
+        )
     finally:
         if prepared_path:
             prepared_path.unlink(missing_ok=True)
@@ -272,7 +291,14 @@ def _create_geometry_job(request: Request, background: BackgroundTasks, label: s
     provider = ProceduralProvider() if image_path is None else select_provider()
     provider_kind = "procedural_fallback" if provider.name == "procedural-parametric" else "ai"
     extra = {"source_file": source_file, "fingerprint": fingerprint}
-    job, created = JOBS.create("generate", owner_id, provider.name, provider_kind, quality_mode, extra=extra, idempotency_key=idempotency_key, stage_detail="Waiting for reconstruction worker.")
+    try:
+        job, created = JOBS.create("generate", owner_id, provider.name, provider_kind, quality_mode, extra=extra, idempotency_key=idempotency_key, stage_detail="Waiting for reconstruction worker.")
+    except QuotaExceeded:
+        if image_path:
+            image_path.unlink(missing_ok=True)
+        if source_file:
+            RUNTIME.artifacts.delete_files([source_file])
+        raise
     if not created:
         if fingerprint and job.extra.get("fingerprint") != fingerprint:
             raise HTTPException(status_code=409, detail="This Idempotency-Key was already used for a different request.")
@@ -435,7 +461,25 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "eye-geometry-backend", "version": "0.4.0-alpha", "models_dir": str(MODELS_DIR), "storage": {"durable": RUNTIME.settings.durable, "warnings": RUNTIME.settings.warnings}, "time": time.time()}
+    database_integrity = RUNTIME.repo.integrity_check()
+    directories_ready = all(path.is_dir() and os.access(path, os.W_OK | os.X_OK) for path in (RUNTIME.settings.data_dir, MODELS_DIR, UPLOADS_DIR, RUNTIME.settings.sources_dir))
+    storage_ready = database_integrity == "ok" and directories_ready
+    return {
+        "ok": storage_ready,
+        "service": "eye-geometry-backend",
+        "version": "0.4.0-alpha",
+        "time": time.time(),
+        "storage": {
+            "ready": storage_ready,
+            "durable": RUNTIME.settings.durable,
+            "database_integrity": database_integrity,
+            "directories_ready": directories_ready,
+            "migrations": "applied at startup",
+            "external_backup_configured": RUNTIME.settings.backup_external_configured,
+            "restore_tested_attested": RUNTIME.settings.backup_restore_tested,
+            "warnings": RUNTIME.settings.warnings,
+        },
+    }
 
 @app.post("/v1/vision/classify", response_model=VisionResponse)
 async def classify_image(label: str = Form(default="Object"), image: Optional[UploadFile] = File(default=None)):
@@ -458,15 +502,15 @@ def generate_geometry(payload: GeometryRequest, request: Request, background: Ba
 async def generate_geometry_from_image(request: Request, background: BackgroundTasks, idempotency_key: Optional[str] = Header(default=None), auth=Depends(optional_auth), label: str = Form(default="Object"), confidence: float = Form(default=0.7), quality_mode: Literal["FAST", "STANDARD", "HIGH_QUALITY"] = Form(default="STANDARD"), image: Optional[UploadFile] = File(default=None)):
     if image is None:
         raise HTTPException(status_code=400, detail="An image is required for AI reconstruction")
-    content = await image.read(15 * 1024 * 1024 + 1)
-    if not content or len(content) > 15 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Upload a non-empty image smaller than 15 MB")
+    content = await image.read(RUNTIME.settings.upload_max_bytes + 1)
+    if not content or len(content) > RUNTIME.settings.upload_max_bytes:
+        raise HTTPException(status_code=413, detail="Upload exceeds the configured image size limit or is empty.")
     try:
         with Image.open(BytesIO(content)) as source:
             source.verify()
     except (UnidentifiedImageError, OSError, ValueError):
         raise HTTPException(status_code=400, detail="The uploaded file is not a valid image") from None
-    fingerprint = hashlib.sha256(content + f"|{label}|{quality_mode}".encode()).hexdigest()
+    fingerprint = hashlib.sha256(content + f"|{label}|{confidence}|{quality_mode}".encode()).hexdigest()
     if idempotency_key:
         existing = JOBS.repo.find_job_by_idempotency(auth[0]["id"] if auth else "guest", idempotency_key)
         if existing:
@@ -481,14 +525,14 @@ async def generate_geometry_from_image(request: Request, background: BackgroundT
 @app.post("/v1/geometry/edit", response_model=GeometryJobResponse, status_code=202)
 def edit_geometry(payload: EditRequest, request: Request, background: BackgroundTasks, idempotency_key: Optional[str] = Header(default=None), auth=Depends(optional_auth)):
     label = classify_label(payload.label)
-    fingerprint = hashlib.sha256(f"{payload.model_url}|{payload.prompt}|{payload.project_id}".encode()).hexdigest()
+    fingerprint = hashlib.sha256(f"{payload.label}|{payload.model_url}|{payload.prompt}|{payload.project_id}".encode()).hexdigest()
     return _queue_derived_job(request, background, "edit", "deterministic-mesh-editor", "deterministic_edit", auth, payload.model_url, payload.project_id, idempotency_key, fingerprint, _run_edit, label, payload.model_url, payload.prompt)
 
 
 @app.post("/v1/geometry/calibrate", response_model=GeometryJobResponse, status_code=202)
 def calibrate_geometry(payload: CalibrationRequest, request: Request, background: BackgroundTasks, idempotency_key: Optional[str] = Header(default=None), auth=Depends(optional_auth)):
     label = classify_label(payload.label)
-    fingerprint = hashlib.sha256(f"{payload.model_url}|{payload.measurement}|{payload.project_id}".encode()).hexdigest()
+    fingerprint = hashlib.sha256(f"{payload.label}|{payload.model_url}|{payload.measurement}|{payload.project_id}".encode()).hexdigest()
     return _queue_derived_job(request, background, "calibrate", "physical-scale-calibrator", "calibration", auth, payload.model_url, payload.project_id, idempotency_key, fingerprint, _run_calibration, label, payload.model_url, payload.measurement)
 
 
@@ -513,6 +557,20 @@ def job_status(job_id: str, request: Request, auth=Depends(optional_auth)):
     if not job or (job.owner_id and (auth is None or auth[0]["id"] != job.owner_id)):
         raise HTTPException(status_code=404, detail="Job not found")
     return _present_job(job, public_base(request))
+
+
+@app.get("/v1/geometry/idempotency")
+def idempotency_status(request: Request, idempotency_key: str = Header(alias="Idempotency-Key"), auth=Depends(optional_auth)):
+    if len(idempotency_key) > 128 or any(char.isspace() for char in idempotency_key):
+        raise HTTPException(status_code=400, detail="Invalid idempotency key.")
+    scope = auth[0]["id"] if auth else "guest"
+    row = RUNTIME.repo.find_job_by_idempotency(scope, idempotency_key)
+    if not row:
+        raise HTTPException(status_code=404, detail="No request was accepted for this idempotency key.")
+    job = JOBS.get(row["id"])
+    if not job:
+        return {"job_id": row["id"], "status": row["status"], "replayed": True}
+    return _present_job(job, public_base(request)).model_copy(update={"replayed": True})
 
 @app.get("/v1/geometry/models/{model_name}")
 def download_model(model_name: str, exp: Optional[str] = None, sig: Optional[str] = None, auth=Depends(optional_auth)):

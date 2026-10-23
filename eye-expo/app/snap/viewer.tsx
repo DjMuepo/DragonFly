@@ -1,13 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Platform, Linking, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Platform, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSnapStore } from '../../src/lib/useSnapStore';
 import { AiMeshEditor } from '../../src/components/AiMeshEditor';
 import { ProjectPanel } from '../../src/components/ProjectPanel';
+import { fetchProjectArtifact, isProjectArtifact, openArtifact } from '../../src/lib/artifactClient';
 
-function WebGlbViewer({ url }: { url: string }) {
+function WebGlbViewer({ url, token }: { url: string; token?: string }) {
   const viewerRef = useRef<any>(null);
   const [status, setStatus] = useState('Loading model...');
+  const [modelSource, setModelSource] = useState('');
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -21,8 +23,30 @@ function WebGlbViewer({ url }: { url: string }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | undefined;
+    setStatus('Loading model...');
+    if (!isProjectArtifact(url)) {
+      setModelSource(url);
+      return () => { cancelled = true; };
+    }
+    setModelSource('');
+    fetchProjectArtifact(url, token)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setModelSource(objectUrl);
+      })
+      .catch((error: any) => { if (!cancelled) setStatus(error?.message || 'Could not open this private model.'); });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url, token]);
+
+  useEffect(() => {
     const viewer = viewerRef.current;
-    if (!viewer) return;
+    if (!viewer || !modelSource) return;
     let cancelled = false;
     setStatus('Loading model...');
     const loaded = () => setStatus('');
@@ -34,7 +58,7 @@ function WebGlbViewer({ url }: { url: string }) {
         if (cancelled || !viewerRef.current) return;
         viewerRef.current.removeAttribute('src');
         requestAnimationFrame(() => {
-          if (!cancelled && viewerRef.current) viewerRef.current.setAttribute('src', url);
+          if (!cancelled && viewerRef.current) viewerRef.current.setAttribute('src', modelSource);
         });
       });
     }
@@ -45,11 +69,11 @@ function WebGlbViewer({ url }: { url: string }) {
       viewer.removeEventListener('load', loaded);
       viewer.removeEventListener('error', failed);
     };
-  }, [url]);
+  }, [modelSource]);
 
   return (
     <View style={styles.webViewer}>
-      {React.createElement('model-viewer', { key: url, ref: viewerRef, src: url, loading: 'eager', 'camera-controls': true, 'auto-rotate': true, 'shadow-intensity': '1', exposure: '1.1', 'camera-target': 'auto auto auto', style: { width: '100%', height: '100%', touchAction: 'pan-y' } } as any)}
+      {modelSource ? React.createElement('model-viewer', { key: modelSource, ref: viewerRef, src: modelSource, loading: 'eager', 'camera-controls': true, 'auto-rotate': true, 'shadow-intensity': '1', exposure: '1.1', 'camera-target': 'auto auto auto', style: { width: '100%', height: '100%', touchAction: 'pan-y' } } as any) : null}
       {status ? <View style={styles.viewerStatus}><Text style={styles.viewerStatusText}>{status}</Text></View> : null}
     </View>
   );
@@ -60,6 +84,7 @@ export default function ViewerScreen() {
   const targetLabel = useSnapStore((s) => s.targetLabel);
   const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
   const generatedModelName = useSnapStore((s) => s.generatedModelName);
+  const authToken = useSnapStore((s) => s.authToken);
   const modelDownloadUrl = useSnapStore((s) => s.modelDownloadUrl);
   const modelHistory = useSnapStore((s) => s.modelHistory);
   const modelHistoryIndex = useSnapStore((s) => s.modelHistoryIndex);
@@ -73,7 +98,7 @@ export default function ViewerScreen() {
       <Text style={styles.title}>3D Preview</Text>
       <Text style={styles.subtitle}>{generatedModelName || `${targetLabel || 'Object'} model`}</Text>
       <View key={modelUrl || 'unavailable'} style={styles.viewerBox}>
-        {modelUrl && Platform.OS === 'web' ? <WebGlbViewer key={modelUrl} url={modelUrl} /> : <View style={styles.unavailable}><Text style={styles.unavailableText}>{modelUrl ? 'Interactive 3D viewing is available on web.' : 'No generated model is available.'}</Text></View>}
+        {modelUrl && Platform.OS === 'web' ? <WebGlbViewer key={modelUrl} url={modelUrl} token={authToken} /> : <View style={styles.unavailable}><Text style={styles.unavailableText}>{modelUrl ? 'Interactive 3D viewing is available on web.' : 'No generated model is available.'}</Text></View>}
       </View>
       <Text style={styles.label}>{targetLabel || 'Object'} {modelUrl ? '3D model' : 'model unavailable'}</Text>
       <Text style={styles.note}>{modelUrl ? 'Drag to rotate. Pinch or scroll to zoom.' : 'Return to generation and retry.'}</Text>
@@ -81,8 +106,8 @@ export default function ViewerScreen() {
       {modelUrl || modelHistory.length ? <AiMeshEditor /> : null}
       <ProjectPanel />
       <View style={styles.actions}>
-        {downloadUrl ? <Pressable style={styles.primaryButton} onPress={() => Linking.openURL(downloadUrl)}><Text style={styles.buttonText}>Open / Download GLB</Text></Pressable> : null}
-        {generatedStlUrl && modelUrl ? <Pressable style={styles.secondaryButton} onPress={() => Linking.openURL(generatedStlUrl)}><Text style={styles.buttonText}>Download STL (mm)</Text></Pressable> : null}
+        {downloadUrl ? <Pressable style={styles.primaryButton} onPress={() => void openArtifact(downloadUrl, authToken, generatedModelName || 'dragonfly-model.glb')}><Text style={styles.buttonText}>Open / Download GLB</Text></Pressable> : null}
+        {generatedStlUrl && modelUrl ? <Pressable style={styles.secondaryButton} onPress={() => void openArtifact(generatedStlUrl, authToken, generatedModelName?.replace(/\.glb$/i, '.stl') || 'dragonfly-model.stl')}><Text style={styles.buttonText}>Download STL (mm)</Text></Pressable> : null}
         {!modelUrl ? <Pressable style={styles.primaryButton} onPress={() => router.replace('/snap/reconstruct')}><Text style={styles.buttonText}>Retry Generation</Text></Pressable> : null}
         <Pressable style={styles.primaryButton} onPress={() => router.push('/snap/result')}><Text style={styles.buttonText}>Back to Result</Text></Pressable>
       </View>

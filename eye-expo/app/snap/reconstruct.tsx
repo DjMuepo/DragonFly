@@ -1,10 +1,11 @@
-import { View, Text, StyleSheet, Image, Pressable, ActivityIndicator, ScrollView } from 'react-native';
+import { Alert, Platform, View, Text, StyleSheet, Image, Pressable, ActivityIndicator, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { useSnapStore } from '../../src/lib/useSnapStore';
-import { generateGeometryFromImage } from '../../src/lib/geometryApi';
 import { revisionFromResult } from '../../src/lib/revisionFromResult';
 import { ProjectPanel } from '../../src/components/ProjectPanel';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { findGeometryJobByKey, generateGeometryFromImage, GeometryJobFailed, newIdempotencyKey, resumeGeometryJob } from '../../src/lib/geometryApi';
 
 export default function ReconstructScreen() {
   const router = useRouter();
@@ -19,10 +20,17 @@ export default function ReconstructScreen() {
   const initializeModelHistory = useSnapStore((s) => s.initializeModelHistory);
   const setJobResultLinks = useSnapStore((s) => s.setJobResultLinks);
   const setProject = useSnapStore((s) => s.setProject);
+  const geometryJobId = useSnapStore((s) => s.geometryJobId);
+  const geometryIdempotencyKey = useSnapStore((s) => s.geometryIdempotencyKey);
+  const setGeometryJobId = useSnapStore((s) => s.setGeometryJobId);
+  const setGeometryIdempotencyKey = useSnapStore((s) => s.setGeometryIdempotencyKey);
+  const hasHydrated = useSnapStore((s) => s.hasHydrated);
+  const authToken = useSnapStore((s) => s.authToken);
   const imageUri = cutoutUri || heroUri;
 
   const [stage, setStage] = useState<'building' | 'ready' | 'error'>('building');
   const [error, setError] = useState<string | null>(null);
+  const [uncertainOutcome, setUncertainOutcome] = useState(false);
   const [modelName, setModelName] = useState<string | null>(null);
   const [engine, setEngine] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -37,7 +45,32 @@ export default function ReconstructScreen() {
     let alive = true;
 
     async function run() {
-      if (!imageUri) {
+      let savedJobId = useSnapStore.getState().geometryJobId;
+      let savedKey = useSnapStore.getState().geometryIdempotencyKey;
+      let savedImageUri = imageUri;
+      if (!savedJobId && !savedKey) {
+        try {
+          const pending = await AsyncStorage.getItem('dragonfly.pending-reconstruction');
+          if (pending) {
+            const parsed = JSON.parse(pending);
+            savedJobId = parsed.jobId || undefined;
+            savedKey = parsed.idempotencyKey || undefined;
+            savedImageUri = savedImageUri || parsed.imageUri || undefined;
+            setGeometryIdempotencyKey(savedKey);
+            setGeometryJobId(savedJobId);
+          }
+        } catch {
+          setError('A saved reconstruction request could not be restored. Start a new scan.');
+        }
+      }
+      if (!savedJobId && savedKey) {
+        const accepted = await findGeometryJobByKey(savedKey);
+        if (accepted) {
+          savedJobId = accepted.job_id;
+          setGeometryJobId(savedJobId);
+        }
+      }
+      if (!savedImageUri && !savedJobId) {
         setStage('error');
         setError('No image found. Start a new scan and try again.');
         return;
@@ -49,25 +82,35 @@ export default function ReconstructScreen() {
         setProgress(0);
         setEngine(null);
         setStageDetail('');
-        activeJobId.current = null;
+        activeJobId.current = savedJobId || null;
         setGeneratedModel(undefined, undefined);
         setGeneratedExport(undefined, undefined);
         setReconstructionDetails(undefined, undefined, undefined);
         setJobResultLinks(undefined, undefined);
-        const result = await generateGeometryFromImage({
-          imageUri,
-          label: targetLabel || 'Object',
-          confidence: 0.7,
-          qualityMode: activeQualityMode,
-          onProgress: (job) => {
-            activeJobId.current = job.job_id;
-            if (alive) {
-              setProgress(job.progress);
-              setEngine(`${job.provider} (${job.provider_kind})`);
-              setStageDetail(job.stage_detail || '');
-            }
-          },
-        });
+        const onProgress = (job: Parameters<typeof resumeGeometryJob>[1] extends ((value: infer J) => void) | undefined ? J : never) => {
+          activeJobId.current = job.job_id;
+          setGeometryJobId(job.job_id);
+          if (alive) {
+            setProgress(job.progress);
+            setEngine(`${job.provider} (${job.provider_kind})`);
+            setStageDetail(job.stage_detail || '');
+          }
+        };
+        let result;
+        if (savedJobId) {
+          result = await resumeGeometryJob(savedJobId, onProgress);
+        } else {
+          const idempotencyKey = savedKey || newIdempotencyKey();
+          setGeometryIdempotencyKey(idempotencyKey);
+          result = await generateGeometryFromImage({
+              imageUri: savedImageUri,
+              label: targetLabel || 'Object',
+              confidence: 0.7,
+              qualityMode: activeQualityMode,
+              idempotencyKey,
+              onProgress,
+            });
+        }
         if (!alive) return;
 
         setGeneratedModel(result.model_url, result.model_name);
@@ -76,12 +119,22 @@ export default function ReconstructScreen() {
         setReconstructionDetails(result.quality_mode, result.preprocessing, result.hidden_surface_uncertainty, warnings);
         initializeModelHistory({ ...revisionFromResult(result), summary: 'Original reconstructed model' });
         setProject(result.project_id, targetLabel || 'Object');
+        setGeometryJobId(undefined);
+        setGeometryIdempotencyKey(undefined);
         setJobResultLinks(result.model_url, result.download_url);
         setModelName(result.model_name);
         setEngine(`${result.engine} (${result.provider_kind})`);
         setStage('ready');
       } catch (err: any) {
         if (!alive) return;
+        if (err instanceof GeometryJobFailed) {
+          const uncertain = err.code === 'provider_outcome_unknown' || err.code === 'interrupted' || (err.code === 'artifact_missing' && err.providerKind === 'ai');
+          setUncertainOutcome(uncertain);
+          if (!uncertain) {
+            setGeometryJobId(undefined);
+            setGeometryIdempotencyKey(undefined);
+          }
+        }
         setGeneratedModel(undefined, undefined);
         setGeneratedExport(undefined, undefined);
         setReconstructionDetails(undefined, undefined, undefined);
@@ -97,9 +150,9 @@ export default function ReconstructScreen() {
     return () => {
       alive = false;
     };
-  }, [attempt, imageUri, targetLabel, activeQualityMode, setGeneratedModel, setGeneratedExport, setReconstructionDetails, initializeModelHistory, setJobResultLinks, setProject]);
+  }, [attempt, imageUri, targetLabel, activeQualityMode, hasHydrated, authToken, setGeneratedModel, setGeneratedExport, setReconstructionDetails, initializeModelHistory, setJobResultLinks, setProject, setGeometryJobId, setGeometryIdempotencyKey]);
 
-  if (!imageUri) {
+  if (!imageUri && !geometryJobId) {
     return (
       <View style={styles.center}>
         <Text>No image found.</Text>
@@ -107,10 +160,34 @@ export default function ReconstructScreen() {
     );
   }
 
+  const retryGeneration = () => {
+    if (!uncertainOutcome) {
+      setAttempt((value) => value + 1);
+      return;
+    }
+    const startNewAttempt = () => {
+      setUncertainOutcome(false);
+      setGeometryJobId(undefined);
+      setGeometryIdempotencyKey(undefined);
+      void AsyncStorage.removeItem('dragonfly.pending-reconstruction');
+      setAttempt((value) => value + 1);
+    };
+    const title = 'Provider outcome is uncertain';
+    const warning = 'The previous request may still have incurred an AI charge. Starting again may create a second prediction.';
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (window.confirm(`${title}\n\n${warning}`)) startNewAttempt();
+      return;
+    }
+    Alert.alert(title, warning, [
+      { text: 'Keep current request', style: 'cancel' },
+      { text: 'Start a new attempt', style: 'destructive', onPress: startNewAttempt },
+    ]);
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>Generating 3D</Text>
-      <Image source={{ uri: imageUri }} style={styles.image} />
+      {imageUri ? <Image source={{ uri: imageUri }} style={styles.image} /> : <Text style={styles.note}>Reconnecting to the existing reconstruction job...</Text>}
       <Text style={styles.objectLabel}>Object: {targetLabel || 'Unknown object'}</Text>
 
       <Pressable style={styles.advancedToggle} onPress={() => setShowAdvanced((value) => !value)}>
@@ -148,8 +225,8 @@ export default function ReconstructScreen() {
             {error ? <Text style={styles.warning}>{error}</Text> : null}
           </View>
           <View style={styles.actions}>
-            <Pressable style={styles.primaryButton} onPress={() => setAttempt((value) => value + 1)}>
-              <Text style={styles.buttonText}>Try Again</Text>
+            <Pressable style={styles.primaryButton} onPress={retryGeneration}>
+              <Text style={styles.buttonText}>{uncertainOutcome ? 'Start a new AI attempt' : 'Try Again'}</Text>
             </Pressable>
             <Pressable style={styles.darkButton} onPress={() => router.push('/snap/camera')}>
               <Text style={styles.buttonText}>Retake Photo</Text>

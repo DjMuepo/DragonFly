@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { calibrateGeometry, editGeometry } from '../lib/geometryApi';
 import { revisionFromResult } from '../lib/revisionFromResult';
+import { openArtifact } from '../lib/artifactClient';
 import { useSnapStore } from '../lib/useSnapStore';
 
 const EXAMPLES = [
@@ -16,6 +17,7 @@ export function AiMeshEditor() {
   const targetLabel = useSnapStore((state) => state.targetLabel);
   const generatedModelUrl = useSnapStore((state) => state.generatedModelUrl);
   const projectId = useSnapStore((state) => state.projectId);
+  const authToken = useSnapStore((state) => state.authToken);
   const generatedModelName = useSnapStore((state) => state.generatedModelName);
   const generatedStlUrl = useSnapStore((state) => state.generatedStlUrl);
   const generatedProviderKind = useSnapStore((state) => state.generatedProviderKind);
@@ -78,7 +80,7 @@ export function AiMeshEditor() {
   const openExport = async (url?: string) => {
     if (!url) return;
     try {
-      await Linking.openURL(url);
+      await openArtifact(url, authToken, url.split('/').pop() || 'dragonfly-model');
     } catch {
       setMessage('Could not open the export. Check your connection and try again.');
     }

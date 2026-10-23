@@ -6,18 +6,6 @@ import LicenseBadge from '../../src/components/LicenseBadge';
 import ConfidenceBadge from '../../src/components/ConfidenceBadge';
 import { getJob, classifyPhoto, retrievePhoto, classifyPhotoSet, retrievePhotoSet } from '../../src/lib/api';
 
-function mockMatches(): { matches: MatchCandidate[]; novelty: 'COMMON' | 'SOMEWHAT_UNIQUE' | 'UNIQUE' } {
-  const matches: MatchCandidate[] = [
-    { id: 'm1', title: 'Bracket (parametric)', similarity: 0.88, license: 'OK' },
-    { id: 'm2', title: 'Door Handle (variant)', similarity: 0.76, license: 'UNKNOWN' },
-    { id: 'm3', title: 'Generic Clip', similarity: 0.63, license: 'OK' },
-    { id: 'm4', title: 'Similar Part (restricted)', similarity: 0.60, license: 'RESTRICTED' }
-  ];
-  const max = Math.max(...matches.map(m => m.similarity));
-  const novelty = max >= 0.85 ? 'COMMON' : max >= 0.65 ? 'SOMEWHAT_UNIQUE' : 'UNIQUE';
-  return { matches, novelty };
-}
-
 export default function Results() {
   const router = useRouter();
   const heroUri = useSnapStore((s) => s.heroUri);
@@ -35,6 +23,7 @@ export default function Results() {
   const visionClassify = useSnapStore((s) => (s as any).visionClassify);
 
   const [loading, setLoading] = useState(true);
+  const [serviceError, setServiceError] = useState<string | null>(null);
   const canPoll = useMemo(() => !!jobId, [jobId]);
 
   useEffect(() => {
@@ -42,16 +31,14 @@ export default function Results() {
 
     const runVision = async () => {
       if (!heroUri) {
-        if (matches.length === 0) {
-          const { matches: m, novelty: n } = mockMatches();
-          setMatches(m, n);
-        }
+        setServiceError('No similarity search was performed. Generate a model from the current photo instead.');
         if (alive) setLoading(false);
         return;
       }
 
       try {
         setLoading(true);
+        setServiceError(null);
         const cls = captureMode === 'multi' && burstUris?.length ? await classifyPhotoSet([heroUri, ...burstUris]) : await classifyPhoto(heroUri);
         if (!alive) return;
         setVisionClassify(cls);
@@ -69,16 +56,10 @@ export default function Results() {
             previewUrl: m.preview_url ?? m.previewUrl,
           }));
           setMatches(mapped as MatchCandidate[], r.novelty);
-        } else if (matches.length === 0) {
-          const { matches: m, novelty: n } = mockMatches();
-          setMatches(m, n);
         }
       } catch (e) {
         console.warn('vision error', e);
-        if (matches.length === 0) {
-          const { matches: m, novelty: n } = mockMatches();
-          setMatches(m, n);
-        }
+        setServiceError('Similar-design search is unavailable in this deployment. No sample matches or license claims are shown.');
       } finally {
         if (alive) setLoading(false);
       }
@@ -104,13 +85,11 @@ export default function Results() {
       <Text style={styles.title}>Matches</Text>
       {visionClassify ? <><Text style={[styles.subtitle, { marginBottom: 4 }]}>We think this is a <Text style={{ color: '#fff', fontWeight: '800' }}>{visionClassify.object_family}</Text> • {Math.round((visionClassify.confidence || 0) * 100)}% confidence</Text><Pressable style={styles.fixBtn} onPress={() => router.push('/snap/family-correction')}><Text style={styles.fixBtnText}>Wrong object?</Text></Pressable></> : null}
       <Text style={styles.subtitle}>
-        {canPoll
-          ? 'Searching open libraries and checking licenses…'
-          : 'We found similar models. Licenses are shown so you can choose safely.'}
+        {loading ? 'Checking for connected search service…' : serviceError || 'Search results are unavailable.'}
       </Text>
 
       <View style={styles.badges}>
-        <ConfidenceBadge novelty={novelty ?? 'SOMEWHAT_UNIQUE'} />
+        {novelty ? <ConfidenceBadge novelty={novelty} /> : null}
         {loading && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <ActivityIndicator />
@@ -147,7 +126,7 @@ export default function Results() {
       />
 
       <View style={styles.actions}>
-        <Pressable style={styles.primary} onPress={onUseBest}>
+        <Pressable style={styles.primary} onPress={onUseBest} disabled={!matches.length || loading}>
           <Text style={styles.primaryText}>Use best match</Text>
         </Pressable>
         <Pressable style={styles.secondary} onPress={onMakeNew}>

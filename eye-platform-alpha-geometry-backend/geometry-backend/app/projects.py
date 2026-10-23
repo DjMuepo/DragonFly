@@ -162,20 +162,22 @@ class ProjectService:
         return project
 
     # presentation
-    def signed_url(self, base_url: str, filename: str) -> str:
-        return f"{base_url}/v1/geometry/models/{filename}?{self.artifacts.signed_query(filename)}"
+    @staticmethod
+    def project_artifact_url(base_url: str, project_id: str, filename: str) -> str:
+        return f"{base_url}/v1/projects/{project_id}/models/{filename}"
 
     def sign_result(self, base_url: str, result: Optional[dict]) -> Optional[dict]:
         if not result or not result.get("project_id"):
             return result
         signed = dict(result)
         name = Path(result.get("model_name", "")).name
-        signed["model_url"] = signed["download_url"] = self.signed_url(base_url, name)
+        project_id = str(result["project_id"])
+        signed["model_url"] = signed["download_url"] = self.project_artifact_url(base_url, project_id, name)
         if result.get("stl_download_url"):
-            signed["stl_download_url"] = self.signed_url(base_url, Path(result["stl_download_url"].split("?")[0]).name)
+            signed["stl_download_url"] = self.project_artifact_url(base_url, project_id, Path(result["stl_download_url"].split("?")[0]).name)
         return signed
 
-    def revision_view(self, base_url: str, revision: Row) -> dict:
+    def revision_view(self, base_url: str, project_id: str, revision: Row) -> dict:
         model = self.repo.get_artifact(revision["model_artifact_id"])
         stl = self.repo.get_artifact(revision["stl_artifact_id"]) if revision["stl_artifact_id"] else None
         available, reason = self.artifacts.available(model)
@@ -189,9 +191,9 @@ class ProjectService:
             "hidden_surface_uncertainty": stored.get("hidden_surface_uncertainty"), "label": stored.get("label"),
         }
         if available and model:
-            view["model_url"] = self.signed_url(base_url, model["filename"])
+            view["model_url"] = self.project_artifact_url(base_url, project_id, model["filename"])
             if stl and self.artifacts.available(stl)[0]:
-                view["stl_url"] = self.signed_url(base_url, stl["filename"])
+                view["stl_url"] = self.project_artifact_url(base_url, project_id, stl["filename"])
         return view
 
     def project_view(self, base_url: str, project: Row, include_revisions: bool = True) -> dict:
@@ -201,7 +203,7 @@ class ProjectService:
             "cursor_index": min(project["cursor_index"], max(len(revisions) - 1, 0)), "revision_count": len(revisions), "has_source_image": bool(project["source_artifact_id"]),
         }
         if include_revisions:
-            data["revisions"] = [self.revision_view(base_url, r) for r in revisions]
+            data["revisions"] = [self.revision_view(base_url, project["id"], r) for r in revisions]
         return data
 
     def delete_project(self, user_id: str, project_id: str) -> None:

@@ -11,6 +11,8 @@ import trimesh
 from PIL import Image, ImageDraw
 from fastapi.testclient import TestClient
 
+import app.runtime as runtime
+runtime.migrate_legacy_storage = lambda settings: {"copied_files": 0, "conflicts": 0, "database_copied": False}
 from app.image_preprocessing import prepare_reconstruction_image
 from app.providers import ReconstructionRequest, ReplicateGPUProvider
 from app.reconstruction_debug import assess_reconstruction, save_debug_record

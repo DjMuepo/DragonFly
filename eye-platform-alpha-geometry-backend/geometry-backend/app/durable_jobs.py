@@ -6,7 +6,7 @@ import time
 import uuid
 from typing import Any, Callable, Optional
 
-from .persistence.repository import DuplicateError, Repository, Row
+from .persistence.repository import DuplicateError, QuotaExceeded, Repository, Row
 
 LOGGER = logging.getLogger("uvicorn.error.dragonfly.jobs")
 
@@ -43,7 +43,9 @@ class JobRecord(dict):
                 changes = {**changes, **(finalizer(self, changes) or {})}
             except Exception:
                 LOGGER.exception("job_finalize_failed job_id=%s", self["job_id"])
-                changes.update(status="error", progress=100, stage="error", error="The model was generated but could not be saved. Try again.", error_code="finalize_failed", result=None)
+                error_code = "provider_outcome_unknown" if self.kind == "generate" and self.get("provider_kind") == "ai" else "finalize_failed"
+                message = "The AI result may have completed but could not be saved. Check your projects before starting another prediction." if error_code == "provider_outcome_unknown" else "The model could not be saved. Try again."
+                changes.update(status="error", progress=100, stage="error", error=message, error_code=error_code, result=None)
         project_id = changes.pop("project_id", None)
         if project_id:
             self.project_id = project_id
@@ -52,8 +54,9 @@ class JobRecord(dict):
 
 
 class DurableJobs:
-    def __init__(self, repo: Repository):
+    def __init__(self, repo: Repository, settings=None):
         self.repo = repo
+        self.settings = settings
         self.finalizer: Optional[Callable[[JobRecord, dict], Optional[dict]]] = None
 
     def create(self, kind: str, owner_id: Optional[str], provider: str, provider_kind: str, quality_mode: str = "STANDARD",
@@ -71,7 +74,17 @@ class DurableJobs:
             "extra_json": json.dumps(extra or {}), "idempotency_key": idempotency_key, "attempts": 1, "created_at": now, "updated_at": now,
         }
         try:
-            return JobRecord(self, self.repo.create_job(row)), True
+            limits = None
+            if kind == "generate" and self.settings:
+                limits = {
+                    "active_user": self.settings.max_active_jobs_per_user,
+                    "active_guest": self.settings.max_active_guest_jobs,
+                    "daily_user": self.settings.daily_reconstructions_per_user,
+                    "daily_guest": self.settings.daily_reconstructions_per_guest,
+                }
+            return JobRecord(self, self.repo.create_job(row, limits=limits)), True
+        except QuotaExceeded:
+            raise
         except DuplicateError:
             existing = self.repo.find_job_by_idempotency(scope, idempotency_key or "")
             if existing:

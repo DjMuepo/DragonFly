@@ -12,30 +12,34 @@
     "build:web": "expo export --platform web",
     "typecheck": "tsc --noEmit",
     "test:history": "node --experimental-strip-types tests/modelHistory.test.ts",
-    "test:projects": "node --experimental-strip-types tests/projectMapping.test.ts"
+    "test:projects": "node --experimental-strip-types tests/projectMapping.test.ts",
+    "test:api": "node --experimental-strip-types tests/apiRecovery.test.ts"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "base-64": "^1.0.0",
-    "expo": "latest",
-    "expo-camera": "latest",
-    "expo-file-system": "latest",
+    "expo": "56.0.12",
+    "expo-camera": "56.0.8",
+    "expo-crypto": "~56.0.5",
+    "expo-file-system": "56.0.8",
     "expo-gl": "~56.0.5",
-    "expo-image-picker": "~15.0.0",
-    "expo-linking": "latest",
+    "expo-image-picker": "15.0.7",
+    "expo-linking": "56.0.14",
     "expo-location": "~17.0.1",
-    "expo-router": "latest",
+    "expo-router": "56.2.11",
+    "expo-secure-store": "~56.0.4",
     "expo-status-bar": "~56.0.4",
-    "react": "latest",
-    "react-dom": "latest",
-    "react-native": "latest",
-    "react-native-web": "latest",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-native": "0.86.0",
+    "react-native-web": "0.21.2",
     "three": "^0.160.1",
     "zustand": "latest"
   },
   "devDependencies": {
     "@types/react": "~19.2.14",
-    "typescript": "latest"
+    "typescript": "6.0.3"
   }
 }

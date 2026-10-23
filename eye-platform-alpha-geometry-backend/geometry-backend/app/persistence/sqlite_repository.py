@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
-from .repository import DuplicateError, Repository, Row
+from .repository import DuplicateError, QuotaExceeded, Repository, Row
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 
@@ -58,6 +58,10 @@ class SqliteRepository(Repository):
                 conn.execute("INSERT INTO schema_migrations VALUES (?, ?, strftime('%s','now'))", (path.stem, checksum))
                 applied.append(path.stem)
         return applied
+
+    def integrity_check(self) -> str:
+        with self._tx() as conn:
+            return str(conn.execute("PRAGMA integrity_check").fetchone()[0])
 
     # users and sessions
     def create_user(self, user_id, email, password_hash, display_name, now):
@@ -188,11 +192,26 @@ class SqliteRepository(Repository):
             return self._one(conn.execute("SELECT * FROM revisions WHERE job_id = ?", (job_id,)))
 
     # jobs
-    def create_job(self, job):
+    def create_job(self, job, limits=None):
         columns = ", ".join(job)
         placeholders = ", ".join(f":{name}" for name in job)
         try:
             with self._tx() as conn:
+                if job.get("idempotency_key"):
+                    existing = conn.execute("SELECT * FROM jobs WHERE owner_scope = ? AND idempotency_key = ?", (job["owner_scope"], job["idempotency_key"])).fetchone()
+                    if existing:
+                        raise DuplicateError("job idempotency key")
+                if job.get("kind") == "generate" and limits:
+                    scope = job["owner_scope"]
+                    active_limit = limits["active_user"] if job.get("owner_id") else limits["active_guest"]
+                    daily_limit = limits["daily_user"] if job.get("owner_id") else limits["daily_guest"]
+                    active = conn.execute("SELECT COUNT(*) AS n FROM jobs WHERE owner_scope = ? AND kind = 'generate' AND status IN ('queued','processing')", (scope,)).fetchone()["n"]
+                    if active_limit >= 0 and active >= active_limit:
+                        raise QuotaExceeded("active_job_limit", "A reconstruction is already running. Wait for it to finish before starting another.")
+                    since = job["created_at"] - 86400
+                    daily = conn.execute("SELECT COUNT(*) AS n FROM jobs WHERE owner_scope = ? AND kind = 'generate' AND created_at >= ?", (scope, since)).fetchone()["n"]
+                    if daily_limit >= 0 and daily >= daily_limit:
+                        raise QuotaExceeded("daily_quota", "The daily reconstruction limit has been reached. Try again after 24 hours.")
                 conn.execute(f"INSERT INTO jobs ({columns}) VALUES ({placeholders})", job)
                 return self._one(conn.execute("SELECT * FROM jobs WHERE id = ?", (job["id"],)))
         except sqlite3.IntegrityError as error:

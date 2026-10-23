@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearSessionToken, readSessionToken, writeSessionToken } from './sessionStorage';
 import { appendRevision, currentRevision, redoRevision, resetRevisions, undoRevision } from './modelHistory';
 import { historyFromProject, type ServerProject } from './projectMapping';
 import { setProjectCursor } from './projectsApi';
@@ -86,6 +89,10 @@ type SnapState = {
   projectId?: string;
   projectName?: string;
   projectSyncError?: string;
+  geometryJobId?: string;
+  geometryIdempotencyKey?: string;
+  hasHydrated: boolean;
+  sessionChecked: boolean;
 
   setHeroUri: (uri?: string) => void;
   setCutoutUri: (uri?: string) => void;
@@ -97,6 +104,10 @@ type SnapState = {
   setReconstructionDetails: (quality?: 'FAST' | 'STANDARD' | 'HIGH_QUALITY', preprocessing?: SnapState['preprocessingReport'], uncertainty?: string, warnings?: string[]) => void;
   initializeModelHistory: (revision: ModelRevision) => void;
   setProject: (id?: string, name?: string) => void;
+  setGeometryJobId: (id?: string) => void;
+  setGeometryIdempotencyKey: (key?: string) => void;
+  setHasHydrated: (value: boolean) => void;
+  setSessionChecked: (value: boolean) => void;
   loadProject: (project: ServerProject) => void;
   applyModelRevision: (revision: ModelRevision) => void;
   undoModelEdit: () => void;
@@ -152,6 +163,8 @@ type SnapState = {
   setVisionReconstruct: (v: any) => void;
   setUserProfile: (profile: Partial<UserProfile>) => void;
   setAuth: (token?: string, user?: any) => void;
+  restoreSessionToken: () => Promise<void>;
+  clearLegacyPersistedAuth: () => void;
   setCorrectedFamily: (family?: string) => void;
   setSelectedPrinter: (printer?: any) => void;
   setPrintRequest: (req?: any) => void;
@@ -191,6 +204,10 @@ const resetState = () => ({
   projectId: undefined,
   projectName: undefined,
   projectSyncError: undefined,
+  geometryJobId: undefined,
+  geometryIdempotencyKey: undefined,
+  hasHydrated: false,
+  sessionChecked: false,
   captureMode: 'single' as CaptureMode,
   burstUris: [],
   jobId: undefined,
@@ -231,7 +248,7 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => {
   authToken: undefined,
   currentUser: undefined,
 
-  setHeroUri: (heroUri) => set({ heroUri, generatedModelUrl: undefined, generatedModelName: undefined, generatedStlUrl: undefined, generatedProviderKind: undefined, reconstructionQuality: undefined, preprocessingReport: undefined, hiddenSurfaceUncertainty: undefined, reconstructionWarnings: [], modelDownloadUrl: undefined, modelHistory: [], modelHistoryIndex: -1, projectId: undefined, projectName: undefined, projectSyncError: undefined }),
+  setHeroUri: (heroUri) => set({ heroUri, generatedModelUrl: undefined, generatedModelName: undefined, generatedStlUrl: undefined, generatedProviderKind: undefined, reconstructionQuality: undefined, preprocessingReport: undefined, hiddenSurfaceUncertainty: undefined, reconstructionWarnings: [], modelDownloadUrl: undefined, modelHistory: [], modelHistoryIndex: -1, projectId: undefined, projectName: undefined, projectSyncError: undefined, geometryJobId: undefined, geometryIdempotencyKey: undefined }),
   setCutoutUri: (cutoutUri) => set({ cutoutUri }),
   setTargetLabel: (targetLabel) => set({ targetLabel }),
   addCaptured: (image) => set((state) => ({ captured: [...state.captured, image] })),
@@ -240,6 +257,9 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => {
   setReconstructionDetails: (reconstructionQuality, preprocessingReport, hiddenSurfaceUncertainty, reconstructionWarnings = []) => set({ reconstructionQuality, preprocessingReport, hiddenSurfaceUncertainty, reconstructionWarnings }),
   initializeModelHistory: (revision) => set({ modelHistory: [revision], modelHistoryIndex: 0 }),
   setProject: (projectId, projectName) => set({ projectId, projectName, projectSyncError: undefined }),
+  setGeometryJobId: (geometryJobId) => set({ geometryJobId }),
+  setGeometryIdempotencyKey: (geometryIdempotencyKey) => set({ geometryIdempotencyKey }),
+  setHasHydrated: (hasHydrated) => set({ hasHydrated }),
   loadProject: (project) => set(() => {
     const { history, index } = historyFromProject(project);
     const revision = history[index];
@@ -301,7 +321,27 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => {
   setVisionReconstruct: (visionReconstruct) => set({ visionReconstruct }),
   setUserProfile: (profile) =>
     set({ userProfile: { ...get().userProfile, ...profile, interests: profile.interests ?? get().userProfile.interests } }),
-  setAuth: (authToken, currentUser) => set({ authToken, currentUser }),
+  setAuth: (authToken, currentUser) => {
+    if (!authToken) {
+      set({ ...resetState(), hasHydrated: get().hasHydrated, sessionChecked: true, authToken: undefined, currentUser: undefined, userProfile: { interests: [], skillLevel: 'beginner' }, sessionId: newSessionId() });
+      void clearSessionToken().catch((error: any) => set({ projectSyncError: error?.message || 'Could not clear the secure session.' }));
+      return;
+    }
+    set({ authToken, currentUser });
+    void writeSessionToken(authToken).catch((error: any) => set({ projectSyncError: error?.message || 'Could not securely store the session.' }));
+  },
+  restoreSessionToken: async () => {
+    try {
+      const token = await readSessionToken();
+      if (token) set({ authToken: token });
+    } catch (error: any) {
+      set({ projectSyncError: error?.message || 'Could not restore the secure session.' });
+    } finally {
+      set({ sessionChecked: true });
+    }
+  },
+    setSessionChecked: (sessionChecked) => set({ sessionChecked }),
+  clearLegacyPersistedAuth: () => set({ authToken: undefined, currentUser: undefined }),
   setCorrectedFamily: (correctedFamily) => set({ correctedFamily }),
   setSelectedPrinter: (selectedPrinter) => set({ selectedPrinter }),
   setPrintRequest: (printRequest) => set({ printRequest }),
@@ -310,7 +350,7 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => {
   };
 }, {
   name: 'dragonfly-alpha-result',
-  storage: typeof localStorage === 'undefined' ? undefined : createJSONStorage(() => localStorage),
+  storage: createJSONStorage(() => Platform.OS === 'web' && typeof window !== 'undefined' ? window.localStorage : AsyncStorage),
   partialize: (state) => ({
     targetLabel: state.targetLabel,
     generatedModelUrl: state.generatedModelUrl,
@@ -326,7 +366,12 @@ export const useSnapStore = create<SnapState>()(persist((set, get) => {
     modelHistoryIndex: state.modelHistoryIndex,
     projectId: state.projectId,
     projectName: state.projectName,
-    authToken: state.authToken,
+    geometryJobId: state.geometryJobId,
+    geometryIdempotencyKey: state.geometryIdempotencyKey,
     currentUser: state.currentUser,
   }),
+  onRehydrateStorage: () => (state) => {
+    state?.clearLegacyPersistedAuth();
+    state?.setHasHydrated(true);
+  },
 }));

@@ -55,6 +55,7 @@ export default function AccountScreen() {
   React.useEffect(() => {
     if (!authToken) { setRestoring(false); return; }
     let alive = true;
+    setRestoring(true);
     fetchMe(authToken)
       .then((res) => { if (alive) { setAuth(authToken, res.user); loadProjects(authToken); } })
       .catch((err) => { if (alive) handleFailure(err, 'Could not confirm your session. Check your connection and retry.'); })
@@ -181,7 +182,7 @@ export default function AccountScreen() {
                 )}
               </View>
             )}
-            ListEmptyComponent={projectsLoading ? null : <Text style={styles.row}>No saved projects yet. Scan an object while signed in, or save the current model from the 3D preview.</Text>}
+            ListEmptyComponent={projectsLoading ? undefined : <Text style={styles.row}>No saved projects yet. Scan an object while signed in, or save the current model from the 3D preview.</Text>}
           />
           {notice ? <Text style={styles.ok}>{notice}</Text> : null}
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}

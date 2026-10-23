@@ -1,7 +1,8 @@
-import { View, Text, StyleSheet, Image, Pressable, Linking, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Image, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useSnapStore } from '../../src/lib/useSnapStore';
+import { openArtifact } from '../../src/lib/artifactClient';
 
 export default function ResultScreen() {
   const router = useRouter();
@@ -10,6 +11,7 @@ export default function ResultScreen() {
   const targetLabel = useSnapStore((s) => s.targetLabel);
   const generatedModelName = useSnapStore((s) => s.generatedModelName);
   const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
+  const authToken = useSnapStore((s) => s.authToken);
   const generatedStlUrl = useSnapStore((s) => s.generatedStlUrl);
   const generatedProviderKind = useSnapStore((s) => s.generatedProviderKind);
   const reconstructionQuality = useSnapStore((s) => s.reconstructionQuality);
@@ -33,7 +35,7 @@ export default function ResultScreen() {
       return;
     }
     try {
-      await Linking.openURL(url);
+      await openArtifact(url, authToken, url.split('/').pop() || 'dragonfly-model');
     } catch {
       setMessage('Could not open the export. Check your connection and try again.');
     }

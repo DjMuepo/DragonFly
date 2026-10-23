@@ -15,6 +15,7 @@ export default function ProcessScreen() {
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<DetectionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -29,6 +30,7 @@ export default function ProcessScreen() {
       try {
         setLoading(true);
         setError(null);
+        setWarning(null);
         const detection = await classifyImage(imageUri);
         if (!alive) return;
         setResult(detection);
@@ -36,7 +38,9 @@ export default function ProcessScreen() {
         addCaptured({ uri: imageUri, label: detection.label, confidence: detection.confidence });
       } catch (err: any) {
         if (!alive) return;
-        setError(err?.message || 'Detection failed.');
+        setTargetLabel('Object');
+        addCaptured({ uri: imageUri, label: 'Object', confidence: 0.5 });
+        setWarning('Automatic photo classification is unavailable. You can still generate a model.');
       } finally {
         if (alive) setLoading(false);
       }
@@ -76,6 +80,7 @@ export default function ProcessScreen() {
         </>
       ) : (
         <>
+          {warning ? <Text style={styles.subtitle}>{warning}</Text> : null}
           <Text style={styles.next}>Ready to generate a 3D model from this photo.</Text>
 
           <View style={styles.actions}>

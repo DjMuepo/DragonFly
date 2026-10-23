@@ -5,6 +5,8 @@ import numpy as np
 import trimesh
 from fastapi.testclient import TestClient
 
+import app.runtime as runtime
+runtime.migrate_legacy_storage = lambda settings: {"copied_files": 0, "conflicts": 0, "database_copied": False}
 from app.main import MODELS_DIR, app
 from app.mesh_editing import ClarificationRequiredError, DeterministicMeshEditor, UnsupportedEditError, validate_for_print
 from app.physical_units import metadata_path, parse_known_measurement

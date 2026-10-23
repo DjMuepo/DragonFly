@@ -7,6 +7,8 @@ export default function HomeScreen() {
   const clear = useSnapStore((s) => s.clear);
   const generatedModelUrl = useSnapStore((s) => s.generatedModelUrl);
   const authToken = useSnapStore((s) => s.authToken);
+  const geometryJobId = useSnapStore((s) => s.geometryJobId);
+  const geometryIdempotencyKey = useSnapStore((s) => s.geometryIdempotencyKey);
 
   const startScan = () => {
     clear();
@@ -25,6 +27,9 @@ export default function HomeScreen() {
         </Pressable>
         {generatedModelUrl ? <Pressable style={styles.secondaryButton} onPress={() => router.push('/snap/result')}>
           <Text style={styles.secondaryText}>Last Result</Text>
+        </Pressable> : null}
+        {geometryJobId || geometryIdempotencyKey ? <Pressable style={styles.secondaryButton} onPress={() => router.push('/snap/reconstruct')}>
+          <Text style={styles.secondaryText}>Resume Reconstruction</Text>
         </Pressable> : null}
         <Pressable style={styles.secondaryButton} onPress={() => router.push('/account')}>
           <Text style={styles.secondaryText}>{authToken ? 'My Projects' : 'Sign In / My Projects'}</Text>

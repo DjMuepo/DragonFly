@@ -1,7 +1,16 @@
+import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useSnapStore } from '../src/lib/useSnapStore';
 
 export default function RootLayout() {
+  const restoreSessionToken = useSnapStore((state) => state.restoreSessionToken);
+  const hasHydrated = useSnapStore((state) => state.hasHydrated);
+
+  useEffect(() => {
+    if (hasHydrated) void restoreSessionToken();
+  }, [hasHydrated, restoreSessionToken]);
+
   return (
     <>
       <StatusBar style="dark" />

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -62,9 +63,16 @@ def build_router(runtime: Runtime) -> tuple[APIRouter, dict]:
             raise HTTPException(status_code=401, detail="Sign in to continue.")
         return authenticated
 
+    def client_ip(request: Request) -> str:
+        if runtime.settings.trust_proxy_headers:
+            forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+            if forwarded:
+                return forwarded[:64]
+        return ""
+
     def fail(error: Exception):
         status = getattr(error, "status_code", 400)
-        return JSONResponse(status_code=status, content={"ok": False, "error": str(error)})
+        return JSONResponse(status_code=status, content={"ok": False, "error": str(error), "detail": str(error)})
 
     @router.post("/v1/auth/signup")
     def signup(payload: SignupRequest):
@@ -74,9 +82,9 @@ def build_router(runtime: Runtime) -> tuple[APIRouter, dict]:
             return fail(error)
 
     @router.post("/v1/auth/login")
-    def login(payload: LoginRequest):
+    def login(payload: LoginRequest, request: Request):
         try:
-            return {"ok": True, **runtime.auth.login(payload.email, payload.password)}
+            return {"ok": True, **runtime.auth.login(payload.email, payload.password, client_ip(request))}
         except AuthError as error:
             return fail(error)
 
@@ -160,6 +168,21 @@ def build_router(runtime: Runtime) -> tuple[APIRouter, dict]:
         if not artifact or not ok:
             raise HTTPException(status_code=404, detail=f"Original photo unavailable: {reason}")
         return FileResponse(runtime.artifacts.path_for(artifact))
+
+    @router.get("/v1/projects/{project_id}/models/{filename}")
+    def project_model(project_id: str, filename: str, auth=Depends(required_auth)):
+        try:
+            runtime.projects.owned_project(auth[0]["id"], project_id)
+        except ProjectError as error:
+            return fail(error)
+        safe_name = Path(filename).name
+        artifact = runtime.repo.get_artifact_by_filename(safe_name)
+        if not artifact or artifact["project_id"] != project_id or artifact["owner_id"] != auth[0]["id"] or artifact["kind"] not in {"model_glb", "model_stl"}:
+            raise HTTPException(status_code=404, detail="Model not found.")
+        available, _ = runtime.artifacts.available(artifact)
+        if not available:
+            raise HTTPException(status_code=404, detail="Model file is unavailable.")
+        return FileResponse(runtime.artifacts.path_for(artifact), media_type="model/gltf-binary" if safe_name.lower().endswith(".glb") else "model/stl", filename=safe_name)
 
     @router.post("/v1/projects/{project_id}/verify")
     def verify_project(project_id: str, auth=Depends(required_auth)):

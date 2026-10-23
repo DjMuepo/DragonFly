@@ -279,7 +279,7 @@ class ReplicateGPUProvider:
         prediction_id = str(prediction.get("id", "unknown"))
         _log_provider_event(request, "replicate_prediction_created", prediction_id=prediction_id, prediction_status=prediction.get("status"))
 
-        deadline = time.time() + 600
+        deadline = time.time() + int(os.environ.get("EYE_REPLICATE_TIMEOUT_SECONDS", "600"))
         last_status = None
         while prediction.get("status") not in {"succeeded", "failed", "canceled"}:
             if time.time() > deadline:
@@ -307,7 +307,8 @@ class ReplicateGPUProvider:
                 save_debug_record(Path(__file__).resolve().parents[1] / "reconstruction_debug", request.job_id, {"returned_asset_url": mesh_url})
             except (OSError, ValueError):
                 LOGGER.warning("Could not persist asset diagnostics for job %s", request.job_id)
-        urllib.request.urlretrieve(mesh_url, local_path)
+        with urllib.request.urlopen(mesh_url, timeout=int(os.environ.get("EYE_REPLICATE_REQUEST_TIMEOUT_SECONDS", "60"))) as response:
+            local_path.write_bytes(response.read())
         _log_provider_event(request, "replicate_output_downloaded", prediction_id=prediction_id, downloaded_bytes=local_path.stat().st_size)
         import trimesh
 
@@ -395,7 +396,7 @@ class ReplicateGPUProvider:
         req.add_header("Authorization", f"Bearer {token.strip()}")
         req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=60) as response:
+            with urllib.request.urlopen(req, timeout=int(os.environ.get("EYE_REPLICATE_REQUEST_TIMEOUT_SECONDS", "60"))) as response:
                 response_body = response.read()
         except ValueError:
             raise RuntimeError("Replicate request could not be sent. Check the backend REPLICATE_API_TOKEN setting.") from None

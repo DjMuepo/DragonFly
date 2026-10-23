@@ -1,41 +1,32 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import BigButton from '../src/components/BigButton';
+import { useSnapStore } from '../src/lib/useSnapStore';
 
 export default function Home() {
   const router = useRouter();
+  const authToken = useSnapStore((state) => state.authToken);
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>EYE</Text>
-      <Text style={styles.tagline}>The fastest path from photo to printable model.</Text>
+      <Text style={styles.tagline}>Capture, reconstruct and continue editing a 3D model.</Text>
 
       <View style={styles.buttons}>
         <BigButton
-          title="Snap & Copy"
-          subtitle="Take one picture. Find or generate a model."
+          title="Photo to 3D"
+          subtitle="Capture one picture and review the generated model."
           onPress={() => router.push('/snap/camera')}
         />
         
         <BigButton
-          title="Start Simple"
-          subtitle="Shapes & everyday objects, ready to modify."
-          onPress={() => router.push('/start-simple')}
-        />
-
-        <BigButton
-          title="Template"
-          subtitle="Start from common parts and customize."
-          onPress={() => router.push('/snap/edit?mode=template')}
-        />
-        <BigButton
-          title="Build Blocks"
-          subtitle="Drag-and-snap building blocks. Toddler simple."
-          onPress={() => router.push('/snap/edit?mode=blocks')}
+          title={authToken ? 'My Projects' : 'Sign In / My Projects'}
+          subtitle="Save, reopen and continue editing your models."
+          onPress={() => router.push('/account')}
         />
       </View>
 
-      <Text style={styles.footer}>Muepo Operations</Text>
+      <Text style={styles.footer}>Printer ordering, public sharing, billing and admin tools are unavailable in this deployment.</Text>
     </View>
   );
 }

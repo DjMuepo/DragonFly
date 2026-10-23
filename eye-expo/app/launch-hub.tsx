@@ -6,16 +6,13 @@ export default function LaunchHubScreen() {
   const router = useRouter();
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding:16, gap:12 }}>
-      <Text style={styles.title}>v66 Launch Hub</Text>
-      <Text style={styles.subtitle}>Preview tools. Account billing, persistent sharing and live admin services may be unavailable in this deployment.</Text>
+      <Text style={styles.title}>DragonFly</Text>
+      <Text style={styles.subtitle}>Core scan, reconstruction, editing and saved projects.</Text>
 
       <View style={styles.panel}>
-        <Pressable style={styles.primary} onPress={() => router.push('/invite')}><Text style={styles.primaryText}>Invite Gate</Text></Pressable>
-        <Pressable style={styles.secondary} onPress={() => router.push('/onboarding')}><Text style={styles.secondaryText}>Onboarding</Text></Pressable>
-        <Pressable style={styles.secondary} onPress={() => router.push('/landing-funnel')}><Text style={styles.secondaryText}>Landing Funnel</Text></Pressable>
-        <Pressable style={styles.secondary} onPress={() => router.push('/monetization')}><Text style={styles.secondaryText}>Monetization</Text></Pressable>
-        <Pressable style={styles.secondary} onPress={() => router.push('/admin-access')}><Text style={styles.secondaryText}>Admin Access</Text></Pressable>
-        <Pressable style={styles.secondary} onPress={() => router.push('/admin-invites')}><Text style={styles.secondaryText}>Admin Invites</Text></Pressable>
+        <Pressable style={styles.primary} onPress={() => router.push('/snap/camera')}><Text style={styles.primaryText}>Start Scan</Text></Pressable>
+        <Pressable style={styles.secondary} onPress={() => router.push('/account')}><Text style={styles.secondaryText}>Sign In / My Projects</Text></Pressable>
+        <Text style={styles.subtitle}>Sharing, billing, printer orders, invites and admin services are unavailable and not linked here.</Text>
       </View>
     </ScrollView>
   );

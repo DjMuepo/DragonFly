@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -944,14 +944,16 @@ async def auth_login(payload: dict):
         return {"ok": False, "error": str(e)}
 
 @app.get("/v1/me")
-async def auth_me(token: str):
+async def auth_me(authorization: str | None = Header(default=None)):
+    token = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else ""
     user = get_user_by_token(token)
     if not user:
         return {"ok": False, "error": "invalid_token"}
     return {"ok": True, "user": user}
 
 @app.get("/v1/my-designs")
-async def my_designs(token: str):
+async def my_designs(authorization: str | None = Header(default=None)):
+    token = authorization[7:].strip() if authorization and authorization.lower().startswith("bearer ") else ""
     user = get_user_by_token(token)
     if not user:
         return {"ok": False, "error": "invalid_token"}
