@@ -13,7 +13,7 @@ staging_blueprint = (REPOSITORY_ROOT / "deployment" / "render.staging.yaml").rea
 assert "name: dragonfly-staging-geometry-backend" in staging_blueprint
 assert "name: dragonfly-staging-frontend" in staging_blueprint
 assert "name: eye-geometry-backend" not in staging_blueprint and "name: dragonfly-frontend" not in staging_blueprint
-assert "autoDeploy: false" in staging_blueprint
+assert staging_blueprint.count("autoDeploy: false") == 2
 assert "REPLICATE_API_TOKEN" not in staging_blueprint
 assert "EYE_STORAGE_DURABLE\n        value: \"0\"" in staging_blueprint
 assert "EYE_REQUIRE_DURABLE_STORAGE\n        value: \"1\"" in staging_blueprint
