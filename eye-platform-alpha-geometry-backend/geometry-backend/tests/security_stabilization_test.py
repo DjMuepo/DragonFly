@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 import subprocess
 import sys
 import tempfile
@@ -8,6 +9,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import JSONResponse
 
 from app.accounts import LoginLimiter
 from app.cors import install_cors, parse_allowed_origins
@@ -41,6 +44,35 @@ client = TestClient(app)
 assert client.post("/v1/auth/login", content=b"x" * 1024).status_code == 200
 assert client.post("/v1/auth/login", content=b"x" * (64 * 1024 + 1)).status_code == 413
 assert client.post("/v1/geometry/generate-from-image", content=b"x" * 1025).status_code == 413
+
+async def verify_streaming_limit():
+    chunks = iter([
+        {"type": "http.request", "body": b"x" * 32768, "more_body": True},
+        {"type": "http.request", "body": b"x" * 32768, "more_body": True},
+        {"type": "http.request", "body": b"x", "more_body": True},
+        {"type": "http.request", "body": b"ignored", "more_body": False},
+    ])
+    messages = []
+    endpoint_completed = False
+
+    async def receive():
+        return next(chunks)
+
+    async def send(message):
+        messages.append(message)
+
+    async def endpoint(scope, receive, send):
+        nonlocal endpoint_completed
+        await StarletteRequest(scope, receive).body()
+        endpoint_completed = True
+        await JSONResponse({"ok": True})(scope, receive, send)
+
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "method": "POST", "scheme": "http", "path": "/v1/auth/login", "raw_path": b"/v1/auth/login", "query_string": b"", "headers": [], "client": ("test", 1), "server": ("test", 80), "root_path": ""}
+    await RequestSizeLimitMiddleware(endpoint, 1024)(scope, receive, send)
+    response = next(message for message in messages if message["type"] == "http.response.start")
+    assert response["status"] == 413 and not endpoint_completed
+
+asyncio.run(verify_streaming_limit())
 
 root = Path(__file__).resolve().parents[1]
 env = dict(os.environ)

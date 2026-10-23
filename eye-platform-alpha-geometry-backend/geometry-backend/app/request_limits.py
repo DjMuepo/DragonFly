@@ -3,6 +3,10 @@ from __future__ import annotations
 from starlette.responses import JSONResponse
 
 
+class RequestTooLarge(Exception):
+    pass
+
+
 class RequestSizeLimitMiddleware:
     def __init__(self, app, upload_max_bytes: int):
         self.app = app
@@ -27,24 +31,18 @@ class RequestSizeLimitMiddleware:
                 await response(scope, receive, send)
                 return
         received = 0
-        rejected = False
 
         async def limited_receive():
-            nonlocal received, rejected
+            nonlocal received
             message = await receive()
-            if message["type"] == "http.request" and not rejected:
+            if message["type"] == "http.request":
                 received += len(message.get("body", b""))
                 if received > maximum:
-                    rejected = True
-                    return {"type": "http.request", "body": b"", "more_body": False}
+                    raise RequestTooLarge
             return message
 
-        async def guarded_send(message):
-            if rejected and message["type"] == "http.response.start":
-                response = JSONResponse({"detail": "Request body exceeds the configured size limit."}, status_code=413)
-                await response(scope, receive, send)
-                return
-            if not rejected:
-                await send(message)
-
-        await self.app(scope, limited_receive, guarded_send)
+        try:
+            await self.app(scope, limited_receive, send)
+        except RequestTooLarge:
+            response = JSONResponse({"detail": "Request body exceeds the configured size limit."}, status_code=413)
+            await response(scope, receive, send)

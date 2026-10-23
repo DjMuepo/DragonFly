@@ -6,6 +6,7 @@ import { revisionFromResult } from '../../src/lib/revisionFromResult';
 import { ProjectPanel } from '../../src/components/ProjectPanel';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { findGeometryJobByKey, generateGeometryFromImage, GeometryJobFailed, newIdempotencyKey, resumeGeometryJob } from '../../src/lib/geometryApi';
+import { reconstructionRecovery, requiresPaidRetryConfirmation } from '../../src/lib/betaRecovery';
 
 export default function ReconstructScreen() {
   const router = useRouter();
@@ -96,11 +97,16 @@ export default function ReconstructScreen() {
             setStageDetail(job.stage_detail || '');
           }
         };
+        const recovery = reconstructionRecovery({ jobId: savedJobId, idempotencyKey: savedKey, serverJobAccepted: !!savedJobId });
         let result;
-        if (savedJobId) {
-          result = await resumeGeometryJob(savedJobId, onProgress);
+        if (recovery.action === 'resume-job') {
+          result = await resumeGeometryJob(recovery.jobId, onProgress);
+        } else if (recovery.action === 'resume-accepted') {
+          const accepted = await findGeometryJobByKey(recovery.idempotencyKey);
+          if (!accepted) throw new Error('The accepted job could not be found. Keep this request and retry status lookup.');
+          result = await resumeGeometryJob(accepted.job_id, onProgress);
         } else {
-          const idempotencyKey = savedKey || newIdempotencyKey();
+          const idempotencyKey = recovery.action === 'submit-same-key' ? recovery.idempotencyKey : newIdempotencyKey();
           setGeometryIdempotencyKey(idempotencyKey);
           result = await generateGeometryFromImage({
               imageUri: savedImageUri,
@@ -128,7 +134,7 @@ export default function ReconstructScreen() {
       } catch (err: any) {
         if (!alive) return;
         if (err instanceof GeometryJobFailed) {
-          const uncertain = err.code === 'provider_outcome_unknown' || err.code === 'interrupted' || (err.code === 'artifact_missing' && err.providerKind === 'ai');
+          const uncertain = requiresPaidRetryConfirmation(err.code, err.providerKind);
           setUncertainOutcome(uncertain);
           if (!uncertain) {
             setGeometryJobId(undefined);

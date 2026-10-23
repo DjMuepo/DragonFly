@@ -1,6 +1,7 @@
 import { useSnapStore } from './useSnapStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
+import { retryInterruptedRequest } from './betaRecovery';
 
 export type GeometryResponse = {
   ok: boolean;
@@ -134,11 +135,7 @@ async function failureMessage(res: Response, label: string): Promise<string> {
 
 async function postWithRetry(url: string, init: RequestInit): Promise<Response> {
   // Same Idempotency-Key makes a network-level retry safe: the backend returns the original job.
-  try {
-    return await timedFetch(url, init);
-  } catch {
-    return await timedFetch(url, init);
-  }
+  return retryInterruptedRequest(() => timedFetch(url, init));
 }
 
 async function timedFetch(url: string, options?: RequestInit): Promise<Response> {
