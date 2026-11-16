@@ -1,5 +1,7 @@
 # Real AI Reconstruction Preflight
 
+> Update 2026-11-16: continued in `2026-11-16-real-ai-reconstruction-preflight-update.md` (version verified, pricing refreshed, token rotation confirmed effective, spend-control findings).
+
 Date: 2026-10-31
 Repository: DjMuepo/DragonFly
 Branch: `feature/staging-deployment`
