@@ -301,11 +301,19 @@ class ReplicateGPUProvider:
         prediction_id = str(prediction.get("id", "unknown"))
         _log_provider_event(request, "replicate_prediction_created", prediction_id=prediction_id, prediction_status=prediction.get("status"))
 
-        deadline = time.time() + int(os.environ.get("EYE_REPLICATE_TIMEOUT_SECONDS", "600"))
+        timeout_seconds = int(os.environ.get("EYE_REPLICATE_TIMEOUT_SECONDS", "600"))
+        deadline = time.time() + timeout_seconds
         last_status = None
         while prediction.get("status") not in {"succeeded", "failed", "canceled"}:
             if time.time() > deadline:
-                raise RuntimeError("Replicate prediction timed out after 10 minutes")
+                # Cost safety: the polling deadline alone does not stop billing on
+                # Replicate's side, so explicitly request cancellation before failing.
+                cancel_result = self._cancel_prediction(prediction, token)
+                _log_provider_event(request, "replicate_prediction_timeout", prediction_id=prediction_id, timeout_seconds=timeout_seconds, cancel=cancel_result)
+                raise RuntimeError(
+                    f"Replicate prediction timed out after {timeout_seconds} seconds; "
+                    f"remote cancellation {cancel_result} (verify terminal status and billed cost in the Replicate dashboard)"
+                )
             time.sleep(3)
             prediction = self._request("GET", prediction_url, token, None, absolute=True)
             if prediction.get("status") != last_status:
@@ -353,6 +361,17 @@ class ReplicateGPUProvider:
             validation=validation,
             reconstruction_quality=reconstruction_quality,
         )
+
+    @classmethod
+    def _cancel_prediction(cls, prediction: dict, token: str) -> str:
+        cancel_url = (prediction.get("urls") or {}).get("cancel")
+        if not cancel_url:
+            return "unavailable (no cancel URL on prediction)"
+        try:
+            cls._request("POST", cancel_url, token, None, absolute=True)
+        except (RuntimeError, OSError) as cancel_error:
+            return f"failed ({cancel_error})"
+        return "requested"
 
     @staticmethod
     def _prediction_request(model_ref: str, image_data_url: str) -> tuple[str, dict, str]:
