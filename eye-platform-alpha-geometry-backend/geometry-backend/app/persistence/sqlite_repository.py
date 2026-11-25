@@ -245,3 +245,33 @@ class SqliteRepository(Repository):
     def detach_project_jobs(self, project_id):
         with self._tx() as conn:
             conn.execute("UPDATE jobs SET project_id = NULL WHERE project_id = ?", (project_id,))
+
+    # controlled paid-test allowance
+    def reserve_paid_prediction(self, reservation_id, user_id, job_id, limit, now):
+        with self._tx() as conn:
+            used = conn.execute("SELECT COUNT(*) AS n FROM paid_predictions WHERE status != 'released'").fetchone()["n"]
+            if used >= limit:
+                raise QuotaExceeded(
+                    "paid_test_allowance",
+                    "The controlled-test paid prediction allowance is exhausted. No further paid predictions are permitted.",
+                )
+            conn.execute(
+                "INSERT INTO paid_predictions (id, user_id, job_id, status, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+                (reservation_id, user_id, job_id, "reserved", now, now),
+            )
+            return self._one(conn.execute("SELECT * FROM paid_predictions WHERE id = ?", (reservation_id,)))
+
+    def record_paid_submission(self, reservation_id, prediction_id, model_reference, now):
+        with self._tx() as conn:
+            conn.execute(
+                "UPDATE paid_predictions SET status = 'submitted', prediction_id = ?, model_reference = ?, updated_at = ? WHERE id = ?",
+                (prediction_id, model_reference, now, reservation_id),
+            )
+
+    def count_paid_predictions(self):
+        with self._tx() as conn:
+            return int(conn.execute("SELECT COUNT(*) AS n FROM paid_predictions WHERE status != 'released'").fetchone()["n"])
+
+    def list_paid_predictions(self):
+        with self._tx() as conn:
+            return [dict(row) for row in conn.execute("SELECT * FROM paid_predictions ORDER BY created_at")]

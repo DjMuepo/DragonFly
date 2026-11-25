@@ -11,6 +11,7 @@ from pathlib import Path
 from .accounts import AuthService
 from .artifacts import ArtifactStore
 from .durable_jobs import DurableJobs
+from .paid_test_gate import PaidPredictionGate, register_gate, validate_paid_test_settings
 from .persistence.repository import Repository
 from .persistence.settings import StorageSettings, load_settings
 from .persistence.sqlite_repository import SqliteRepository
@@ -29,6 +30,7 @@ class Runtime:
     jobs: DurableJobs
     projects: ProjectService
     legacy_migration: dict
+    paid_gate: PaidPredictionGate
 
 
 def migrate_legacy_storage(settings: StorageSettings, legacy_root: Path | None = None) -> dict:
@@ -99,6 +101,7 @@ def _file_digest(path: Path) -> str:
 
 def build_runtime() -> Runtime:
     validate_mock_provider_settings()
+    validate_paid_test_settings()
     settings = load_settings()
     if settings.require_durable and not settings.durable:
         raise RuntimeError("EYE_REQUIRE_DURABLE_STORAGE=1 but EYE_DATA_DIR/EYE_STORAGE_DURABLE=1 are not configured.")
@@ -131,4 +134,6 @@ def build_runtime() -> Runtime:
     projects = ProjectService(repo, artifacts)
     jobs.finalizer = projects.finalize_job
     jobs.source_cleanup = lambda name: artifacts.delete_files([name])
-    return Runtime(settings, repo, AuthService(repo, settings.session_ttl_seconds), artifacts, jobs, projects, legacy_migration)
+    paid_gate = PaidPredictionGate(repo)
+    register_gate(paid_gate)
+    return Runtime(settings, repo, AuthService(repo, settings.session_ttl_seconds), artifacts, jobs, projects, legacy_migration, paid_gate)

@@ -24,6 +24,11 @@ def staging_mock_allowed() -> bool:
     return True
 
 
+def controlled_paid_test_allowed() -> bool:
+    """The controlled paid real-AI test may only run in local tests or on the explicitly named staging service."""
+    return staging_mock_allowed()
+
+
 def validate_mock_provider_settings() -> None:
     enabled = os.environ.get("EYE_ENABLE_MOCK_PROVIDER") == "1"
     requested = os.environ.get("EYE_RECONSTRUCTION_PROVIDER", "dpt-depth-mesh").strip().lower()

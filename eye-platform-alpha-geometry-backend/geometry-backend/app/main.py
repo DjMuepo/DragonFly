@@ -30,6 +30,7 @@ from .api_routes import build_router
 from .cors import install_cors
 from .request_limits import RequestSizeLimitMiddleware
 from .projects import ProjectError
+from .paid_test_gate import PaidTestGateError
 from .persistence.repository import QuotaExceeded
 from .runtime import build_runtime
 
@@ -66,6 +67,11 @@ def recover_interrupted_jobs() -> None:
 @app.exception_handler(QuotaExceeded)
 async def quota_exceeded_handler(request: Request, error: QuotaExceeded):
     return JSONResponse(status_code=429, content={"ok": False, "error": str(error), "error_code": error.code, "detail": str(error)})
+
+
+@app.exception_handler(PaidTestGateError)
+async def paid_test_gate_handler(request: Request, error: PaidTestGateError):
+    return JSONResponse(status_code=error.status_code, content={"ok": False, "error": str(error), "error_code": error.code, "detail": str(error)})
 
 
 LOGGER = logging.getLogger("uvicorn.error.dragonfly.reconstruction")
@@ -288,9 +294,18 @@ def _present_job(job, base_url: str) -> GeometryJobResponse:
     return GeometryJobResponse(**data)
 
 
-def _create_geometry_job(request: Request, background: BackgroundTasks, label: str, confidence: float, image_path: Path | None = None, prompt: str | None = None, quality_mode: str = "STANDARD", owner_id: str | None = None, source_file: str | None = None, idempotency_key: str | None = None, fingerprint: str | None = None) -> GeometryJobResponse:
+def _create_geometry_job(request: Request, background: BackgroundTasks, label: str, confidence: float, image_path: Path | None = None, prompt: str | None = None, quality_mode: str = "STANDARD", owner: dict | None = None, source_file: str | None = None, idempotency_key: str | None = None, fingerprint: str | None = None) -> GeometryJobResponse:
+    owner_id = owner["id"] if owner else None
     provider = ProceduralProvider() if image_path is None else select_provider()
     provider_kind = "mock_test" if provider.name == "mock-test" else "procedural_fallback" if provider.name == "procedural-parametric" else "ai"
+    if image_path is not None and provider.name == "replicate-remote-gpu":
+        try:
+            RUNTIME.paid_gate.authorize_request(owner)
+        except PaidTestGateError:
+            image_path.unlink(missing_ok=True)
+            if source_file:
+                RUNTIME.artifacts.delete_files([source_file])
+            raise
     extra = {"source_file": source_file, "fingerprint": fingerprint}
     try:
         job, created = JOBS.create("generate", owner_id, provider.name, provider_kind, quality_mode, extra=extra, idempotency_key=idempotency_key, stage_detail="Waiting for reconstruction worker.")
@@ -484,6 +499,7 @@ def health():
             "environment": application_environment(),
             "provider": os.environ.get("EYE_RECONSTRUCTION_PROVIDER", "dpt-depth-mesh"),
             "mock_enabled": os.environ.get("EYE_ENABLE_MOCK_PROVIDER") == "1",
+            "paid_test": RUNTIME.paid_gate.status(),
         },
     }
 
@@ -502,7 +518,7 @@ async def classify_image(label: str = Form(default="Object"), image: Optional[Up
 def generate_geometry(payload: GeometryRequest, request: Request, background: BackgroundTasks, idempotency_key: Optional[str] = Header(default=None), auth=Depends(optional_auth)):
     label = classify_label(payload.label)
     fingerprint = hashlib.sha256(json.dumps(payload.model_dump(), sort_keys=True).encode()).hexdigest()
-    return _create_geometry_job(request, background, label, payload.confidence, prompt=payload.prompt, quality_mode=payload.quality_mode, owner_id=auth[0]["id"] if auth else None, idempotency_key=idempotency_key, fingerprint=fingerprint)
+    return _create_geometry_job(request, background, label, payload.confidence, prompt=payload.prompt, quality_mode=payload.quality_mode, owner=auth[0] if auth else None, idempotency_key=idempotency_key, fingerprint=fingerprint)
 
 @app.post("/v1/geometry/generate-from-image", response_model=GeometryJobResponse, status_code=202)
 async def generate_geometry_from_image(request: Request, background: BackgroundTasks, idempotency_key: Optional[str] = Header(default=None), auth=Depends(optional_auth), label: str = Form(default="Object"), confidence: float = Form(default=0.7), quality_mode: Literal["FAST", "STANDARD", "HIGH_QUALITY"] = Form(default="STANDARD"), image: Optional[UploadFile] = File(default=None)):
@@ -520,13 +536,13 @@ async def generate_geometry_from_image(request: Request, background: BackgroundT
     if idempotency_key:
         existing = JOBS.repo.find_job_by_idempotency(auth[0]["id"] if auth else "guest", idempotency_key)
         if existing:
-            return _create_geometry_job(request, background, label, confidence, quality_mode=quality_mode, owner_id=auth[0]["id"] if auth else None, idempotency_key=idempotency_key, fingerprint=fingerprint)
+            return _create_geometry_job(request, background, label, confidence, quality_mode=quality_mode, owner=auth[0] if auth else None, idempotency_key=idempotency_key, fingerprint=fingerprint)
     saved_name = f"{uuid.uuid4().hex}_{Path(image.filename or 'scan.jpg').name}"
     image_path = UPLOADS_DIR / saved_name
     image_path.write_bytes(content)
     source_file = RUNTIME.artifacts.save_source_image(content, image.filename or "scan.jpg").name if auth else None
     detected = classify_label(label, image_path.name if image_path else None)
-    return _create_geometry_job(request, background, detected, confidence, image_path=image_path, quality_mode=quality_mode, owner_id=auth[0]["id"] if auth else None, source_file=source_file, idempotency_key=idempotency_key, fingerprint=fingerprint)
+    return _create_geometry_job(request, background, detected, confidence, image_path=image_path, quality_mode=quality_mode, owner=auth[0] if auth else None, source_file=source_file, idempotency_key=idempotency_key, fingerprint=fingerprint)
 
 @app.post("/v1/geometry/edit", response_model=GeometryJobResponse, status_code=202)
 def edit_geometry(payload: EditRequest, request: Request, background: BackgroundTasks, idempotency_key: Optional[str] = Header(default=None), auth=Depends(optional_auth)):

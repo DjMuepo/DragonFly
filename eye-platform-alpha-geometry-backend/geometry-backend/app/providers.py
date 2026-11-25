@@ -19,9 +19,14 @@ from .mesh_factory import export_glb, export_trimesh, infer_preset
 from .mesh_editing import validate_for_print
 from .reconstruction_debug import assess_reconstruction, save_debug_record
 from .environment import staging_mock_allowed
+from .paid_test_gate import record_submission, reserve_before_submission
 
 
 LOGGER = logging.getLogger("uvicorn.error.dragonfly.reconstruction")
+
+# Replicate's CDN rejects the default Python urllib User-Agent with HTTP 403;
+# explicit User-Agent and Accept headers were verified to return HTTP 200.
+USER_AGENT = "DragonFly-GeometryBackend/0.4 (+https://github.com/DjMuepo/DragonFly)"
 
 
 def _memory_rss_mib() -> float | None:
@@ -291,6 +296,10 @@ class ReplicateGPUProvider:
         image_data_url = self._encode_image(request.image_path, request)
         prediction_path, prediction_body, model_name = self._prediction_request(model_ref, image_data_url)
         _log_provider_event(request, "replicate_request_started", input_bytes=request.image_path.stat().st_size, input_mime=mimetypes.guess_type(str(request.image_path))[0] or "image/jpeg", model=model_name, model_reference=model_ref, version=prediction_body["version"], parameters={key: value for key, value in prediction_body["input"].items() if key != "image"}, preprocessing=request.preprocessing)
+        # Controlled test: atomically consume the persisted global allowance immediately
+        # before the prediction POST. It is never restored automatically after this point,
+        # even on ambiguous network failures (reconcile manually in the Replicate dashboard).
+        reservation_id = reserve_before_submission(request.job_id)
         prediction = self._request(
             "POST",
             prediction_path,
@@ -299,6 +308,7 @@ class ReplicateGPUProvider:
         )
         prediction_url = prediction["urls"]["get"]
         prediction_id = str(prediction.get("id", "unknown"))
+        record_submission(reservation_id, prediction_id, model_ref)
         _log_provider_event(request, "replicate_prediction_created", prediction_id=prediction_id, prediction_status=prediction.get("status"))
 
         timeout_seconds = int(os.environ.get("EYE_REPLICATE_TIMEOUT_SECONDS", "600"))
@@ -337,7 +347,7 @@ class ReplicateGPUProvider:
                 save_debug_record(Path(__file__).resolve().parents[1] / "reconstruction_debug", request.job_id, {"returned_asset_url": mesh_url})
             except (OSError, ValueError):
                 LOGGER.warning("Could not persist asset diagnostics for job %s", request.job_id)
-        with urllib.request.urlopen(mesh_url, timeout=int(os.environ.get("EYE_REPLICATE_REQUEST_TIMEOUT_SECONDS", "60"))) as response:
+        with urllib.request.urlopen(urllib.request.Request(mesh_url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"}), timeout=int(os.environ.get("EYE_REPLICATE_REQUEST_TIMEOUT_SECONDS", "60"))) as response:
             local_path.write_bytes(response.read())
         _log_provider_event(request, "replicate_output_downloaded", prediction_id=prediction_id, downloaded_bytes=local_path.stat().st_size)
         import trimesh
@@ -436,6 +446,8 @@ class ReplicateGPUProvider:
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Authorization", f"Bearer {token.strip()}")
         req.add_header("Content-Type", "application/json")
+        req.add_header("User-Agent", USER_AGENT)
+        req.add_header("Accept", "application/json")
         try:
             with urllib.request.urlopen(req, timeout=int(os.environ.get("EYE_REPLICATE_REQUEST_TIMEOUT_SECONDS", "60"))) as response:
                 response_body = response.read()

@@ -34,6 +34,14 @@ Required for a durable staging instance:
 - `PUBLIC_BASE_URL`: exact staging backend URL used in generated result references.
 - `EYE_RECONSTRUCTION_PROVIDER=replicate`, `EYE_REPLICATE_MODEL_VERSION`, and `REPLICATE_API_TOKEN`: the code supports these, but setting a real token enables paid inference. Do not configure/use real inference until explicitly approved. Automated tests use a mock provider.
 
+Controlled real-AI test gate (required to select the `replicate` provider on staging; the backend fails startup otherwise):
+
+- `EYE_PAID_TEST_MODE=1`: activates the staging-only controlled-inference gate. Refused outside local tests or the explicitly named `dragonfly-staging-geometry-backend` service.
+- `EYE_PAID_TEST_AUTHORIZED_USER_EMAIL`: email of the single existing account allowed to submit paid reconstructions. Guests and all other accounts receive HTTP 403.
+- `EYE_PAID_TEST_GLOBAL_LIMIT=1`: global paid prediction allowance (0–10). Each paid submission atomically consumes one unit in the persistent database *before* the remote prediction is created; consumed units survive restarts and are never restored automatically, even after ambiguous network failures.
+- Deactivate by setting `EYE_PAID_TEST_MODE=0` (or removing it) together with `EYE_RECONSTRUCTION_PROVIDER=mock-test` and `EYE_ENABLE_MOCK_PROVIDER=1`.
+- `GET /health` reports the gate under `inference.paid_test` (enabled, global_limit, consumed, remaining).
+
 Safe defaults/optional controls (defaults shown):
 
 - `EYE_MAX_ACTIVE_RECONSTRUCTION_JOBS_PER_USER=1`
